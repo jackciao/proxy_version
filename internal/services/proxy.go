@@ -540,10 +540,16 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}) (map
 			userFlow = ""
 		}
 		
+		// Get listen IP from config, default to all interfaces
+		listenIP := "::"
+		if li, ok := config["listen"].(string); ok && li != "" {
+			listenIP = li
+		}
+		
 		inbound = map[string]interface{}{
 			"type":        "vless",
 			"tag":         "vless-in",
-			"listen":      "::",
+			"listen":      listenIP,
 			"listen_port": port,
 			"users": []map[string]interface{}{
 				{"uuid": uuid, "flow": userFlow},

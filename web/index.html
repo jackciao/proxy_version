@@ -410,6 +410,17 @@
                         <div class="form-group">
                             <label for="node-port">端口</label>
                             <input type="number" id="node-port" value="443" min="1" max="65535">
+                            <div id="port-conflict-warning" class="warning-box hidden">
+                                <span class="warning-icon">⚠️</span>
+                                <span id="port-conflict-message">端口 443 已被占用</span>
+                            </div>
+                        </div>
+                        <div class="form-group" id="ip-bind-group">
+                            <label for="node-ip-bind">IP 绑定 <span class="label-hint">(Reality 节点可选)</span></label>
+                            <select id="node-ip-bind">
+                                <option value="">自动 (所有接口)</option>
+                            </select>
+                            <p class="form-hint">选择特定 IP 可解决 443 端口冲突问题</p>
                         </div>
                         <div class="form-actions">
                             <button type="button" class="btn btn-secondary modal-cancel">取消</button>

@@ -109,6 +109,33 @@ func UninstallCore() gin.HandlerFunc {
 	}
 }
 
+// GetServerIPs returns all public IPs of the server
+func GetServerIPs() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		detector := services.NewDetectorService()
+		ips := detector.GetAllServerIPs()
+		c.JSON(http.StatusOK, ips)
+	}
+}
+
+// CheckPort checks if a port is available on specific IP
+func CheckPort() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Port int    `json:"port" binding:"required"`
+			IP   string `json:"ip"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		detector := services.NewDetectorService()
+		result := detector.CheckPortAvailability(req.Port, req.IP)
+		c.JSON(http.StatusOK, result)
+	}
+}
+
 
 func ListCertificates(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {

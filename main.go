@@ -75,6 +75,8 @@ func main() {
 				system.GET("/protocols", handlers.GetProtocols())
 				system.GET("/cores", handlers.GetCoreStatus())
 				system.GET("/random-port", handlers.GetRandomPort())
+				system.GET("/ips", handlers.GetServerIPs())
+				system.POST("/check-port", handlers.CheckPort())
 				system.POST("/cores/install", handlers.InstallCore())
 				system.POST("/cores/uninstall", handlers.UninstallCore())
 			}

@@ -1,11 +1,15 @@
 package services
 
 import (
+	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type DetectorService struct{}
@@ -342,4 +346,147 @@ func (d *DetectorService) GetProxyConfigPath() string {
 func (d *DetectorService) GetOpenRestyContainer() string {
 	result := d.DetectReverseProxy()
 	return result.OpenRestyContainer
+}
+
+// ServerIPInfo contains information about server IPs
+type ServerIPInfo struct {
+	IPv4List  []string `json:"ipv4_list"`
+	IPv6List  []string `json:"ipv6_list"`
+	PublicIP4 string   `json:"public_ipv4"`
+	PublicIP6 string   `json:"public_ipv6"`
+}
+
+// GetAllServerIPs returns all public IPs of the server
+func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
+	info := ServerIPInfo{
+		IPv4List: []string{},
+		IPv6List: []string{},
+	}
+
+	// Get IPs from network interfaces
+	interfaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range interfaces {
+			if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+
+				if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+					continue
+				}
+
+				if ip4 := ip.To4(); ip4 != nil {
+					if !ip.IsPrivate() {
+						info.IPv4List = append(info.IPv4List, ip4.String())
+					}
+				} else if ip6 := ip.To16(); ip6 != nil {
+					if !ip.IsPrivate() && !ip.IsLinkLocalUnicast() {
+						info.IPv6List = append(info.IPv6List, ip6.String())
+					}
+				}
+			}
+		}
+	}
+
+	// Get public IPs via external API
+	info.PublicIP4 = d.getExternalIP("https://api4.ipify.org")
+	info.PublicIP6 = d.getExternalIP("https://api6.ipify.org")
+
+	// Add public IP to list if not already present
+	if info.PublicIP4 != "" && !contains(info.IPv4List, info.PublicIP4) {
+		info.IPv4List = append([]string{info.PublicIP4}, info.IPv4List...)
+	}
+	if info.PublicIP6 != "" && !contains(info.IPv6List, info.PublicIP6) {
+		info.IPv6List = append([]string{info.PublicIP6}, info.IPv6List...)
+	}
+
+	return info
+}
+
+func (d *DetectorService) getExternalIP(url string) string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	body := make([]byte, 64)
+	n, _ := resp.Body.Read(body)
+	return strings.TrimSpace(string(body[:n]))
+}
+
+func contains(list []string, item string) bool {
+	for _, v := range list {
+		if v == item {
+			return true
+		}
+	}
+	return false
+}
+
+// PortCheckResult contains port availability info
+type PortCheckResult struct {
+	Available   bool   `json:"available"`
+	Port        int    `json:"port"`
+	IP          string `json:"ip"`
+	OccupiedBy  string `json:"occupied_by,omitempty"`
+	ProcessName string `json:"process_name,omitempty"`
+}
+
+// CheckPortAvailability checks if a port is available
+func (d *DetectorService) CheckPortAvailability(port int, ip string) PortCheckResult {
+	result := PortCheckResult{
+		Port: port,
+		IP:   ip,
+	}
+
+	if ip == "" {
+		ip = "0.0.0.0"
+	}
+
+	// Try to listen on the port
+	addr := fmt.Sprintf("%s:%d", ip, port)
+	if strings.Contains(ip, ":") {
+		addr = fmt.Sprintf("[%s]:%d", ip, port)
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		result.Available = false
+		result.OccupiedBy = "端口已被占用"
+
+		// Try to get process info using lsof/ss
+		if output, err := exec.Command("ss", "-tlnp", fmt.Sprintf("sport = :%d", port)).Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, fmt.Sprintf(":%d", port)) {
+					// Extract process name
+					if idx := strings.Index(line, "users:"); idx != -1 {
+						result.ProcessName = line[idx:]
+					}
+					break
+				}
+			}
+		}
+	} else {
+		listener.Close()
+		result.Available = true
+	}
+
+	return result
 }

@@ -234,21 +234,33 @@ class App {
             const opt = s.options[s.selectedIndex];
             const desc = document.getElementById('protocol-desc');
             const dg = document.getElementById('domain-group');
+            const ipg = document.getElementById('ip-bind-group');
             if (opt.value) {
                 const p = this.protocols.find(x => x.id === opt.value);
                 if (p) {
                     desc.innerHTML = p.description + (p.recommended ? ' <span class="recommended">✓ 推荐</span>' : '');
                     desc.classList.add('show');
                     dg.style.display = p.needs_domain ? 'block' : 'none';
+                    // Show IP binding for Reality protocols
+                    if (ipg) ipg.style.display = opt.value.includes('reality') ? 'block' : 'none';
                     if (!p.needs_domain) document.getElementById('node-domain').value = ''
                 } else {
                     desc.classList.remove('show');
-                    dg.style.display = 'block'
+                    dg.style.display = 'block';
+                    if (ipg) ipg.style.display = 'none';
                 }
             } else {
                 desc.classList.remove('show');
-                dg.style.display = 'block'
+                dg.style.display = 'block';
+                if (ipg) ipg.style.display = 'none';
             }
+        });
+
+        // Port conflict checking with debounce
+        let portCheckTimeout = null;
+        document.getElementById('node-port')?.addEventListener('input', (e) => {
+            clearTimeout(portCheckTimeout);
+            portCheckTimeout = setTimeout(() => this.checkPortConflict(e.target.value), 500);
         });
 
         document.getElementById('cert-method')?.addEventListener('change', (e) => {
@@ -546,6 +558,64 @@ class App {
         this.openModal('share-modal')
     }
 
+    async checkPortConflict(port) {
+        const warning = document.getElementById('port-conflict-warning');
+        const msg = document.getElementById('port-conflict-message');
+        if (!warning || !port) return;
+
+        const ip = document.getElementById('node-ip-bind')?.value || '';
+        try {
+            const result = await API.checkPort(parseInt(port), ip);
+            if (!result.available) {
+                msg.textContent = `端口 ${port} 已被占用${result.process_name ? ` (${result.process_name})` : ''}`;
+                warning.classList.remove('hidden');
+            } else {
+                warning.classList.add('hidden');
+            }
+        } catch (e) {
+            warning.classList.add('hidden');
+        }
+    }
+
+    async loadServerIPs() {
+        const select = document.getElementById('node-ip-bind');
+        if (!select) return;
+
+        try {
+            const data = await API.getServerIPs();
+            select.innerHTML = '<option value="">自动 (所有接口)</option>';
+
+            // Add IPv4 addresses
+            if (data.ipv4_list && data.ipv4_list.length > 0) {
+                const optgroup4 = document.createElement('optgroup');
+                optgroup4.label = 'IPv4';
+                data.ipv4_list.forEach(ip => {
+                    const opt = document.createElement('option');
+                    opt.value = ip;
+                    opt.textContent = ip + (ip === data.public_ipv4 ? ' (公网)' : '');
+                    optgroup4.appendChild(opt);
+                });
+                select.appendChild(optgroup4);
+            }
+
+            // Add IPv6 addresses  
+            if (data.ipv6_list && data.ipv6_list.length > 0) {
+                const optgroup6 = document.createElement('optgroup');
+                optgroup6.label = 'IPv6';
+                data.ipv6_list.forEach(ip => {
+                    const opt = document.createElement('option');
+                    opt.value = ip;
+                    opt.textContent = ip.length > 20 ? ip.substring(0, 20) + '...' : ip;
+                    opt.title = ip;
+                    optgroup6.appendChild(opt);
+                });
+                select.appendChild(optgroup6);
+            }
+        } catch (e) {
+            console.error('Failed to load server IPs:', e);
+        }
+    }
+
     copyToClipboard(text) {
         if (navigator.clipboard) {
             navigator.clipboard.writeText(text).then(() => this.showToast('已复制到剪贴板', 'success')).catch(() => this.fallbackCopy(text))
@@ -656,6 +726,12 @@ class App {
     async openCreateNodeModal() {
         this.openModal('create-node-modal');
         await this.loadCertificatesForDropdown();
+        await this.loadServerIPs();
+        // Hide IP binding group initially (shown when Reality is selected)
+        const ipg = document.getElementById('ip-bind-group');
+        if (ipg) ipg.style.display = 'none';
+        // Hide port conflict warning
+        document.getElementById('port-conflict-warning')?.classList.add('hidden');
         try {
             const r = await API.getRandomPort();
             document.getElementById('node-port').value = r.port
@@ -669,8 +745,16 @@ class App {
         const p = document.getElementById('node-protocol').value;
         const d = document.getElementById('node-domain').value;
         const pt = parseInt(document.getElementById('node-port').value);
+        const listenIP = document.getElementById('node-ip-bind')?.value || '';
+
+        // Include listen IP in config if specified
+        const config = {};
+        if (listenIP) {
+            config.listen = listenIP;
+        }
+
         try {
-            await API.createNode({ name: n, protocol: p, domain: d, port: pt, config: {} });
+            await API.createNode({ name: n, protocol: p, domain: d, port: pt, config });
             this.showToast('节点创建成功', 'success');
             this.closeModal();
             document.getElementById('create-node-form').reset();

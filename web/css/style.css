@@ -236,6 +236,31 @@ a {
     margin-top: var(--space-xl);
 }
 
+.warning-box {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius-sm);
+    color: #f59e0b;
+    font-size: 0.85rem;
+    margin-top: var(--space-sm);
+}
+
+.warning-box.error {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.label-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
 .input-with-btn {
     display: flex;
     gap: var(--space-sm);
