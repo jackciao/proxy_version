@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxy Version - 代理节点管理平台</title>
+    <meta name="description" content="现代化的代理节点一键部署与管理平台">
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Loading screen -->
+        <div id="loading" class="loading-screen">
+            <div class="loader"></div>
+            <p>加载中...</p>
+        </div>
+
+        <!-- Auth pages -->
+        <div id="auth-container" class="auth-container hidden">
+            <div class="auth-card glass">
+                <div class="auth-header">
+                    <div class="logo">
+                        <svg viewBox="0 0 24 24" width="48" height="48">
+                            <path fill="currentColor"
+                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+                        </svg>
+                    </div>
+                    <h1>Proxy Version</h1>
+                    <p class="subtitle">代理节点管理平台</p>
+                </div>
+
+                <!-- Login Form -->
+                <form id="login-form" class="auth-form">
+                    <h2>登录</h2>
+                    <div class="form-group">
+                        <label for="login-username">用户名</label>
+                        <input type="text" id="login-username" placeholder="请输入用户名" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">密码</label>
+                        <input type="password" id="login-password" placeholder="请输入密码" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">登录</button>
+                    <p class="auth-hint">请在服务器终端运行 <code>proxy_version</code> 命令创建用户</p>
+                </form>
+            </div>
+        </div>
+
+        <!-- Main App -->
+        <div id="main-container" class="main-container hidden">
+            <!-- Mobile Menu Toggle -->
+            <button id="mobile-menu-toggle" class="mobile-menu-toggle" aria-label="菜单" onclick="app.toggleMobileMenu()">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path fill="currentColor" d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" />
+                </svg>
+            </button>
+            <!-- Sidebar Overlay for Mobile -->
+            <div id="sidebar-overlay" class="sidebar-overlay" onclick="app.closeMobileMenu()"></div>
+            <!-- Sidebar -->
+            <aside class="sidebar glass" id="sidebar">
+                <div class="sidebar-header">
+                    <div class="logo-small">
+                        <svg viewBox="0 0 24 24" width="32" height="32">
+                            <path fill="currentColor"
+                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+                        </svg>
+                    </div>
+                    <span class="brand-name">Proxy Version</span>
+                </div>
+                <nav class="sidebar-nav">
+                    <a href="#dashboard" class="nav-item active" data-page="dashboard">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor"
+                                d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />
+                        </svg>
+                        <span>仪表板</span>
+                    </a>
+                    <a href="#nodes" class="nav-item" data-page="nodes">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor"
+                                d="M4 6h18V4H4c-1.1 0-2 .9-2 2v11H0v3h14v-3H4V6zm19 2h-6c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h6c.55 0 1-.45 1-1V9c0-.55-.45-1-1-1zm-1 9h-4v-7h4v7z" />
+                        </svg>
+                        <span>节点管理</span>
+                    </a>
+                    <a href="#certificates" class="nav-item" data-page="certificates">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor"
+                                d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z" />
+                        </svg>
+                        <span>证书管理</span>
+                    </a>
+                    <a href="#system" class="nav-item" data-page="system">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor"
+                                d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+                        </svg>
+                        <span>系统设置</span>
+                    </a>
+                </nav>
+                <div class="sidebar-footer">
+                    <div class="user-info">
+                        <div class="avatar" id="user-avatar">U</div>
+                        <span id="username-display">用户</span>
+                    </div>
+                    <button class="btn-icon" id="logout-btn" title="退出登录">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor"
+                                d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
+                        </svg>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Dashboard Page -->
+                <section id="page-dashboard" class="page active">
+                    <header class="page-header">
+                        <h1>仪表板</h1>
+                        <p>系统概览和快速操作</p>
+                    </header>
+
+                    <div class="stats-grid">
+                        <div class="stat-card glass">
+                            <div class="stat-icon running">
+                                <svg viewBox="0 0 24 24" width="24" height="24">
+                                    <path fill="currentColor" d="M8 5v14l11-7z" />
+                                </svg>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="running-nodes">0</span>
+                                <span class="stat-label">运行中节点</span>
+                            </div>
+                        </div>
+                        <div class="stat-card glass">
+                            <div class="stat-icon total">
+                                <svg viewBox="0 0 24 24" width="24" height="24">
+                                    <path fill="currentColor"
+                                        d="M4 6h18V4H4c-1.1 0-2 .9-2 2v11H0v3h14v-3H4V6zm19 2h-6c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h6c.55 0 1-.45 1-1V9c0-.55-.45-1-1-1z" />
+                                </svg>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="total-nodes">0</span>
+                                <span class="stat-label">总节点数</span>
+                            </div>
+                        </div>
+                        <div class="stat-card glass">
+                            <div class="stat-icon certs">
+                                <svg viewBox="0 0 24 24" width="24" height="24">
+                                    <path fill="currentColor"
+                                        d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+                                </svg>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="total-certs">0</span>
+                                <span class="stat-label">SSL证书</span>
+                            </div>
+                        </div>
+                        <div class="stat-card glass">
+                            <div class="stat-icon system">
+                                <svg viewBox="0 0 24 24" width="24" height="24">
+                                    <path fill="currentColor"
+                                        d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z" />
+                                </svg>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="system-status">--</span>
+                                <span class="stat-label">系统状态</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-grid">
+                        <div class="card glass">
+                            <div class="card-header">
+                                <h3>系统检测</h3>
+                                <button class="btn btn-sm" id="refresh-detection">刷新</button>
+                            </div>
+                            <div class="card-body" id="detection-result">
+                                <div class="detection-loading">正在检测系统环境...</div>
+                            </div>
+                        </div>
+
+                        <div class="card glass">
+                            <div class="card-header">
+                                <h3>快速操作</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="quick-actions">
+                                    <button class="btn btn-primary" id="quick-create-node">
+                                        <svg viewBox="0 0 24 24" width="20" height="20">
+                                            <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                                        </svg>
+                                        创建节点
+                                    </button>
+                                    <button class="btn btn-secondary" id="quick-apply-cert">
+                                        <svg viewBox="0 0 24 24" width="20" height="20">
+                                            <path fill="currentColor"
+                                                d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+                                        </svg>
+                                        申请证书
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Nodes Page -->
+                <section id="page-nodes" class="page">
+                    <header class="page-header">
+                        <h1>节点管理</h1>
+                        <button class="btn btn-primary" id="create-node-btn">
+                            <svg viewBox="0 0 24 24" width="20" height="20">
+                                <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                            </svg>
+                            创建节点
+                        </button>
+                    </header>
+
+                    <div class="nodes-list" id="nodes-list">
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" width="64" height="64">
+                                <path fill="currentColor"
+                                    d="M4 6h18V4H4c-1.1 0-2 .9-2 2v11H0v3h14v-3H4V6zm19 2h-6c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h6c.55 0 1-.45 1-1V9c0-.55-.45-1-1-1zm-1 9h-4v-7h4v7z" />
+                            </svg>
+                            <p>暂无节点</p>
+                            <button class="btn btn-primary" id="empty-create-node">创建第一个节点</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Certificates Page -->
+                <section id="page-certificates" class="page">
+                    <header class="page-header">
+                        <h1>证书管理</h1>
+                        <button class="btn btn-primary" id="apply-cert-btn">
+                            <svg viewBox="0 0 24 24" width="20" height="20">
+                                <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                            </svg>
+                            申请证书
+                        </button>
+                    </header>
+
+                    <div class="certs-list" id="certs-list">
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" width="64" height="64">
+                                <path fill="currentColor"
+                                    d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+                            </svg>
+                            <p>暂无证书</p>
+                            <button class="btn btn-primary" id="empty-apply-cert">申请第一个证书</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- System Page -->
+                <section id="page-system" class="page">
+                    <header class="page-header">
+                        <h1>系统设置</h1>
+                    </header>
+
+                    <div class="settings-grid">
+                        <div class="card glass">
+                            <div class="card-header">
+                                <h3>系统信息</h3>
+                            </div>
+                            <div class="card-body" id="system-info">
+                                <div class="info-row">
+                                    <span class="info-label">操作系统</span>
+                                    <span class="info-value" id="os-info">--</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">架构</span>
+                                    <span class="info-value" id="arch-info">--</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">主机名</span>
+                                    <span class="info-value" id="hostname-info">--</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">sing-box 版本</span>
+                                    <span class="info-value" id="singbox-version">未安装</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card glass">
+                            <div class="card-header">
+                                <h3>反向代理检测</h3>
+                                <button class="btn btn-sm" id="redetect-proxy">重新检测</button>
+                            </div>
+                            <div class="card-body" id="proxy-detection">
+                                <div class="detection-loading">检测中...</div>
+                            </div>
+                        </div>
+
+                        <div class="card glass">
+                            <div class="card-header">
+                                <h3>代理内核管理</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="info-row">
+                                    <span class="info-label">sing-box</span>
+                                    <span class="info-value" id="singbox-status">检测中...</span>
+                                </div>
+                                <p class="text-muted" style="font-size:0.8rem;margin-top:var(--space-md)">
+                                    💡 创建节点时会自动安装所需内核，也可在此手动管理
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Onboarding Guide Overlay -->
+        <div id="guide-overlay" class="guide-overlay hidden">
+            <div class="guide-content glass">
+                <div class="guide-header">
+                    <h2>🎉 欢迎使用 Proxy Version</h2>
+                    <p>让我们快速了解如何使用</p>
+                </div>
+                <div class="guide-steps" id="guide-steps">
+                    <div class="guide-step active" data-step="1">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h3>📜 申请 SSL 证书</h3>
+                            <p>大多数协议需要 SSL 证书来加密流量。</p>
+                            <div class="step-info">
+                                <strong>为什么需要证书？</strong>
+                                <ul>
+                                    <li>保护数据传输安全</li>
+                                    <li>伪装成正常 HTTPS 网站</li>
+                                    <li>避免被检测和封锁</li>
+                                </ul>
+                            </div>
+                            <p class="step-tip">💡 如果使用 Reality 协议则无需证书</p>
+                        </div>
+                    </div>
+                    <div class="guide-step" data-step="2">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h3>🌐 创建代理节点</h3>
+                            <p>选择适合的协议创建节点：</p>
+                            <div class="step-info">
+                                <strong>推荐协议：</strong>
+                                <ul>
+                                    <li><b>VLESS Reality</b> - 无需域名，最强抗检测</li>
+                                    <li><b>Hysteria2</b> - 超高速度，适合视频</li>
+                                    <li><b>Trojan</b> - 简单高效，兼容性好</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="guide-step" data-step="3">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h3>📱 配置客户端</h3>
+                            <p>创建节点后，将配置导入客户端软件：</p>
+                            <div class="step-info">
+                                <ul>
+                                    <li>iOS: Shadowrocket, Quantumult X</li>
+                                    <li>Android: v2rayNG, NekoBox</li>
+                                    <li>Windows: v2rayN, Clash</li>
+                                    <li>macOS: ClashX, V2rayU</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="guide-nav">
+                    <button class="btn btn-secondary" id="guide-skip">跳过</button>
+                    <div class="guide-dots" id="guide-dots"></div>
+                    <button class="btn btn-primary" id="guide-next">下一步</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modals -->
+        <div id="modal-overlay" class="modal-overlay hidden">
+            <!-- Create Node Modal -->
+            <div id="create-node-modal" class="modal glass hidden">
+                <div class="modal-header">
+                    <h2>创建节点</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="create-node-form">
+                        <div class="form-group">
+                            <label for="node-name">节点名称</label>
+                            <input type="text" id="node-name" placeholder="例如：我的节点" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="node-protocol">协议类型</label>
+                            <select id="node-protocol" required>
+                                <option value="">加载中...</option>
+                            </select>
+                            <div id="protocol-desc" class="protocol-desc"></div>
+                        </div>
+                        <div class="form-group" id="domain-group">
+                            <label for="node-domain">域名</label>
+                            <input type="text" id="node-domain" placeholder="例: example.com (Reality无需)">
+                        </div>
+                        <div class="form-group">
+                            <label for="node-port">端口</label>
+                            <input type="number" id="node-port" value="443" min="1" max="65535">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary modal-cancel">取消</button>
+                            <button type="submit" class="btn btn-primary">创建</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Apply Certificate Modal -->
+            <div id="apply-cert-modal" class="modal glass hidden">
+                <div class="modal-header">
+                    <h2>申请SSL证书</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="cert-info-box">
+                        <p>⚠️ <strong>证书用途说明</strong></p>
+                        <ul>
+                            <li>用于加密节点通信，伪装 HTTPS 流量</li>
+                            <li>证书将自动续签（90天有效期）</li>
+                            <li>需要将域名解析到本服务器 IP</li>
+                        </ul>
+                    </div>
+                    <form id="apply-cert-form">
+                        <div class="form-group">
+                            <label for="cert-domain">域名</label>
+                            <input type="text" id="cert-domain" placeholder="例: example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="cert-email">邮箱 (可选，用于到期提醒)</label>
+                            <input type="email" id="cert-email" placeholder="用于接收证书到期通知">
+                        </div>
+                        <div class="form-group">
+                            <label for="cert-provider">证书颁发机构</label>
+                            <select id="cert-provider">
+                                <option value="letsencrypt">Let's Encrypt (推荐)</option>
+                                <option value="zerossl">ZeroSSL</option>
+                                <option value="buypass">Buypass</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cert-method">验证方式</label>
+                            <select id="cert-method">
+                                <option value="http">HTTP 验证</option>
+                                <option value="dns">DNS 验证 (支持通配符)</option>
+                            </select>
+                        </div>
+                        <div id="dns-settings" class="hidden">
+                            <div class="cert-info-box"
+                                style="background: rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.3);">
+                                <p style="color: var(--accent-primary);">💡 <strong>Cloudflare API Token 获取方法：</strong>
+                                </p>
+                                <ul>
+                                    <li>登录 Cloudflare → 右上角头像 → My Profile</li>
+                                    <li>API Tokens → Create Token</li>
+                                    <li>选择 "Edit zone DNS" 模板</li>
+                                    <li>Zone Resources: 选择您的域名</li>
+                                </ul>
+                            </div>
+                            <div class="form-group">
+                                <label for="dns-provider">DNS 服务商</label>
+                                <select id="dns-provider">
+                                    <option value="cloudflare">Cloudflare</option>
+                                    <option value="aliyun">阿里云 (AccessKey:Secret)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="cf-email-group">
+                                <label for="cf-email">Cloudflare 账户邮箱</label>
+                                <input type="email" id="cf-email" placeholder="your@email.com">
+                                <small class="form-hint">如果使用 Global API Key 则必填</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="dns-token">API Token / Key</label>
+                                <input type="password" id="dns-token" placeholder="API Token 或 Global API Key">
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary modal-cancel">取消</button>
+                            <button type="submit" class="btn btn-primary">申请</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Share Node Modal -->
+            <div id="share-modal" class="modal glass hidden">
+                <div class="modal-header">
+                    <h2>📤 分享节点</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="share-tabs">
+                        <button class="share-tab active"
+                            onclick="document.querySelectorAll('.share-panel').forEach(p=>p.classList.remove('active'));document.getElementById('share-qr-panel').classList.add('active');document.querySelectorAll('.share-tab').forEach(t=>t.classList.remove('active'));this.classList.add('active')">二维码</button>
+                        <button class="share-tab"
+                            onclick="document.querySelectorAll('.share-panel').forEach(p=>p.classList.remove('active'));document.getElementById('share-url-panel').classList.add('active');document.querySelectorAll('.share-tab').forEach(t=>t.classList.remove('active'));this.classList.add('active')">链接</button>
+                        <button class="share-tab"
+                            onclick="document.querySelectorAll('.share-panel').forEach(p=>p.classList.remove('active'));document.getElementById('share-json-panel').classList.add('active');document.querySelectorAll('.share-tab').forEach(t=>t.classList.remove('active'));this.classList.add('active')">JSON</button>
+                    </div>
+                    <div id="share-qr-panel" class="share-panel active">
+                        <div id="share-qrcode" class="qrcode-container"></div>
+                        <p class="text-center text-muted" style="margin-top:var(--space-md)">使用客户端扫描二维码导入</p>
+                    </div>
+                    <div id="share-url-panel" class="share-panel">
+                        <textarea id="share-url" class="share-textarea" readonly rows="4"></textarea>
+                        <button class="btn btn-primary btn-block"
+                            onclick="copyToClipboard(document.getElementById('share-url').value)">📋 复制链接</button>
+                    </div>
+                    <div id="share-json-panel" class="share-panel">
+                        <pre id="share-json" class="share-json"></pre>
+                        <button class="btn btn-primary btn-block"
+                            onclick="copyToClipboard(document.getElementById('share-json').textContent)">📋 复制
+                            JSON</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Edit Node Modal -->
+            <div id="edit-node-modal" class="modal hidden">
+                <div class="modal-header">
+                    <h2>✏️ 编辑节点</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-node-form">
+                        <input type="hidden" id="edit-node-id">
+                        <input type="hidden" id="edit-node-protocol">
+
+                        <div class="form-group">
+                            <label for="edit-node-name">节点名称</label>
+                            <input type="text" id="edit-node-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-node-port">端口</label>
+                            <input type="number" id="edit-node-port" min="1" max="65535" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-node-domain">域名</label>
+                            <input type="text" id="edit-node-domain" placeholder="可留空">
+                        </div>
+
+                        <!-- Common Config Fields -->
+                        <div id="edit-uuid-group" class="form-group" style="display:none;">
+                            <label for="edit-config-uuid">UUID</label>
+                            <div class="input-with-btn">
+                                <input type="text" id="edit-config-uuid" placeholder="用户唯一标识">
+                                <button type="button" class="btn btn-secondary btn-sm"
+                                    onclick="app.generateUUID()">生成</button>
+                            </div>
+                        </div>
+
+                        <div id="edit-password-group" class="form-group" style="display:none;">
+                            <label for="edit-config-password">密码</label>
+                            <div class="input-with-btn">
+                                <input type="text" id="edit-config-password" placeholder="连接密码">
+                                <button type="button" class="btn btn-secondary btn-sm"
+                                    onclick="app.generatePassword()">生成</button>
+                            </div>
+                        </div>
+
+                        <!-- Reality Config -->
+                        <div id="edit-reality-group" style="display:none;">
+                            <div class="form-group">
+                                <label for="edit-config-servername">伪装站点 (SNI)</label>
+                                <input type="text" id="edit-config-servername" value="www.microsoft.com">
+                                <small class="text-muted">建议使用大型网站域名，需支持 TLS 1.3</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-config-publickey">公钥 (PublicKey)</label>
+                                <input type="text" id="edit-config-publickey" placeholder="X25519 公钥">
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-config-shortid">Short ID</label>
+                                <div class="input-with-btn">
+                                    <input type="text" id="edit-config-shortid" placeholder="8-16位十六进制">
+                                    <button type="button" class="btn btn-secondary btn-sm"
+                                        onclick="app.generateShortId()">生成</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Transport Config -->
+                        <div id="edit-transport-group" style="display:none;">
+                            <div class="form-group">
+                                <label for="edit-config-path">WebSocket 路径</label>
+                                <div class="input-with-btn">
+                                    <input type="text" id="edit-config-path" placeholder="/vless-ws">
+                                    <button type="button" class="btn btn-secondary btn-sm"
+                                        onclick="app.generatePath()">随机</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="edit-grpc-group" style="display:none;">
+                            <div class="form-group">
+                                <label for="edit-config-servicename">gRPC 服务名</label>
+                                <div class="input-with-btn">
+                                    <input type="text" id="edit-config-servicename" placeholder="grpc">
+                                    <button type="button" class="btn btn-secondary btn-sm"
+                                        onclick="app.generateServiceName()">随机</button>
+                                </div>
+                                <small class="text-muted">建议使用随机字符串避免特征检测</small>
+                            </div>
+                        </div>
+
+                        <!-- Hysteria2 Speed Config -->
+                        <div id="edit-speed-group" style="display:none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="edit-config-upmbps">上行速度 (Mbps)</label>
+                                    <input type="number" id="edit-config-upmbps" value="100" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-config-downmbps">下行速度 (Mbps)</label>
+                                    <input type="number" id="edit-config-downmbps" value="100" min="1">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-config-obfs">混淆密码 (可选)</label>
+                                <input type="text" id="edit-config-obfs" placeholder="留空不启用混淆">
+                            </div>
+                        </div>
+
+                        <!-- TUIC Congestion Control -->
+                        <div id="edit-congestion-group" style="display:none;">
+                            <div class="form-group">
+                                <label for="edit-config-congestion">拥塞控制算法</label>
+                                <select id="edit-config-congestion">
+                                    <option value="bbr">BBR (推荐)</option>
+                                    <option value="cubic">Cubic</option>
+                                    <option value="new_reno">New Reno</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="modal-actions">
+                            <button type="button" class="btn btn-secondary modal-cancel">取消</button>
+                            <button type="submit" class="btn btn-primary">保存修改</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Container -->
+        <div id="toast-container"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+
+</html>

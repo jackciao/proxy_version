@@ -1,0 +1,33 @@
+services:
+  proxy_version:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: proxy_version
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - /etc/v2ray-agent:/etc/v2ray-agent
+      - /etc/nginx:/etc/nginx:ro
+      - /etc/systemd/system:/etc/systemd/system
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/1panel:/opt/1panel:ro
+      - /www/server:/www/server:ro
+      - /root/.acme.sh:/root/.acme.sh
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8080
+      - ENVIRONMENT=production
+      - JWT_SECRET=${JWT_SECRET:-change_this_to_a_secure_secret}
+      - DATABASE_PATH=/app/data/proxy_version.db
+      - DATA_DIR=/app/data
+    privileged: true
+    pid: host
+    network_mode: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
