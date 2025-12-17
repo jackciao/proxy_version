@@ -20,7 +20,8 @@ RUN apk add --no-cache \
     docker-cli \
     socat \
     coreutils \
-    net-tools
+    net-tools \
+    wireguard-tools
 
 # Create symlink for bash compatibility (acme.sh uses #!/usr/bin/bash)
 RUN ln -sf /bin/bash /usr/bin/bash

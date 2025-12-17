@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,42 +103,29 @@ func (s *WarpService) InstallWgcf() error {
 	return nil
 }
 
-// Register registers a new WARP account
+// Register registers a new WARP account using Cloudflare API directly
 func (s *WarpService) Register() (*WarpConfig, error) {
-	// Ensure wgcf is installed
-	if err := s.InstallWgcf(); err != nil {
-		return nil, err
+	// Generate WireGuard keypair using wg command or generate manually
+	privateKey, publicKey, err := s.generateWireGuardKeys()
+	if err != nil {
+		return nil, fmt.Errorf("生成密钥对失败: %v", err)
 	}
 
-	// Create config directory
-	if err := os.MkdirAll(warpConfigDir, 0755); err != nil {
-		return nil, err
-	}
-
-	// Change to config directory
-	originalDir, _ := os.Getwd()
-	os.Chdir(warpConfigDir)
-	defer os.Chdir(originalDir)
-
-	// Remove existing account file to force new registration
-	os.Remove(filepath.Join(warpConfigDir, "wgcf-account.toml"))
-
-	// Register new account
-	cmd := exec.Command(wgcfPath, "register", "--accept-tos")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("注册 WARP 账号失败: %v, output: %s", err, string(output))
-	}
-
-	// Generate WireGuard config
-	cmd = exec.Command(wgcfPath, "generate")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("生成配置失败: %v, output: %s", err, string(output))
-	}
-
-	// Parse the generated config
-	config, err := s.parseWgcfConfig()
+	// Call Cloudflare WARP registration API
+	regData, err := s.callCloudflareRegisterAPI(publicKey)
 	if err != nil {
 		return nil, err
+	}
+
+	config := &WarpConfig{
+		AccountType: "free",
+		DeviceID:    regData.ID,
+		AccessToken: regData.Token,
+		PrivateKey:  privateKey,
+		PublicKey:   publicKey,
+		IPv4Address: regData.Config.Interface.Addresses.V4 + "/32",
+		IPv6Address: regData.Config.Interface.Addresses.V6 + "/128",
+		Endpoint:    "engage.cloudflareclient.com:2408",
 	}
 
 	// Save to database
@@ -145,6 +134,105 @@ func (s *WarpService) Register() (*WarpConfig, error) {
 	}
 
 	return config, nil
+}
+
+// CloudflareRegResponse represents the Cloudflare API response
+type CloudflareRegResponse struct {
+	ID     string `json:"id"`
+	Token  string `json:"token"`
+	Config struct {
+		Interface struct {
+			Addresses struct {
+				V4 string `json:"v4"`
+				V6 string `json:"v6"`
+			} `json:"addresses"`
+		} `json:"interface"`
+	} `json:"config"`
+}
+
+func (s *WarpService) generateWireGuardKeys() (privateKey, publicKey string, err error) {
+	// Try using wg command first
+	cmd := exec.Command("wg", "genkey")
+	privKeyBytes, err := cmd.Output()
+	if err == nil {
+		privKey := strings.TrimSpace(string(privKeyBytes))
+		
+		cmd = exec.Command("wg", "pubkey")
+		cmd.Stdin = strings.NewReader(privKey)
+		pubKeyBytes, err := cmd.Output()
+		if err == nil {
+			return privKey, strings.TrimSpace(string(pubKeyBytes)), nil
+		}
+	}
+
+	// Fallback: generate keys using crypto (requires golang.org/x/crypto/curve25519)
+	// For simplicity, use openssl
+	cmd = exec.Command("bash", "-c", "openssl genpkey -algorithm x25519 2>/dev/null | openssl pkey -text 2>/dev/null")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", "", fmt.Errorf("无法生成密钥: 请确保安装了 wireguard-tools 或 openssl")
+	}
+
+	// Parse openssl output (this is a fallback, wg command is preferred)
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "priv:") || strings.Contains(line, "pub:") {
+			// Simple key extraction
+		}
+	}
+
+	return "", "", fmt.Errorf("请安装 wireguard-tools (apt install wireguard-tools)")
+}
+
+func (s *WarpService) callCloudflareRegisterAPI(publicKey string) (*CloudflareRegResponse, error) {
+	// Cloudflare WARP API endpoint
+	apiURL := "https://api.cloudflareclient.com/v0a2158/reg"
+
+	// Request body
+	reqBody := map[string]interface{}{
+		"key":        publicKey,
+		"install_id": "",
+		"fcm_token":  "",
+		"tos":        time.Now().Format(time.RFC3339),
+		"model":      "Linux",
+		"type":       "Linux",
+		"locale":     "en_US",
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create request
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "okhttp/3.12.1")
+
+	// Send request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API 请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Cloudflare API 返回错误 %d: %s", resp.StatusCode, string(body))
+	}
+
+	var regResp CloudflareRegResponse
+	if err := json.Unmarshal(body, &regResp); err != nil {
+		return nil, fmt.Errorf("解析响应失败: %v", err)
+	}
+
+	return &regResp, nil
 }
 
 // Refresh re-registers to get a new WARP IP (useful when streaming unlock becomes ineffective)
