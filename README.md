@@ -26,7 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/jackciao/proxy_version/main/deploy/
 - 创建必要目录
 - 构建并启动容器
 
-## 快速开始
+## 快速开始（若不通过一键脚本安装）
 
 ```bash
 cd /opt/proxy_version
