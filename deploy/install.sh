@@ -56,6 +56,11 @@ export JWT_SECRET=$(openssl rand -hex 32)
 docker compose down 2>/dev/null || true
 docker compose up -d --build
 
+# 6. 设置 CLI 命令
+echo -e "${CYAN}[6/6] 设置命令行工具...${NC}"
+chmod +x "${INSTALL_DIR}/scripts/proxy_version.sh"
+ln -sf "${INSTALL_DIR}/scripts/proxy_version.sh" /usr/local/bin/proxy_version
+
 # 完成
 PUBLIC_IP=$(curl -s --connect-timeout 3 ip.sb || echo "服务器IP")
 echo -e "
@@ -64,5 +69,9 @@ ${GREEN}╔═══════════════════════
 ╚═══════════════════════════════════════════════════════╝${NC}
 
   ${CYAN}访问地址:${NC} http://${PUBLIC_IP}:8080
-  ${CYAN}管理命令:${NC} cd ${INSTALL_DIR} && docker compose logs -f
+  ${CYAN}管理命令:${NC} proxy_version
 "
+
+# 自动运行 CLI
+sleep 2
+/usr/local/bin/proxy_version
