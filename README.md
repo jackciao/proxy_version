@@ -20,11 +20,11 @@ curl -fsSL https://raw.githubusercontent.com/jackciao/proxy_version/main/deploy/
 
 这个命令会自动：
 
-安装 Docker（如果没有）
-安装 Git（如果没有）
-克隆您的项目
-创建必要目录
-构建并启动容器
+- 安装 Docker（如果没有）
+- 安装 Git（如果没有）
+- 克隆您的项目
+- 创建必要目录
+- 构建并启动容器
 
 ## 快速开始
 
