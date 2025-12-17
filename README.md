@@ -10,6 +10,21 @@
 - 📡 支持 VLESS/VMess/Trojan/Hysteria2/TUIC
 - 📜 acme.sh 证书管理
 - 🐳 Docker 一键部署
+  
+
+## 一键脚本安装
+
+‘’‘bash
+curl -fsSL https://raw.githubusercontent.com/jackciao/proxy_version/main/deploy/install.sh | bash
+、、、
+
+这个命令会自动：
+
+安装 Docker（如果没有）
+安装 Git（如果没有）
+克隆您的项目
+创建必要目录
+构建并启动容器
 
 ## 快速开始
 
