@@ -505,6 +505,9 @@ func (s *ProxyService) runOnHost(command string, args ...string) (string, error)
 
 // generateSingBoxConfig generates a sing-box compatible configuration
 func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled bool, db interface{}) (map[string]interface{}, error) {
+	// Debug log
+	fmt.Printf("generateSingBoxConfig called with warpEnabled=%v, db type=%T\n", warpEnabled, db)
+	
 	port := 443
 	if p, ok := config["port"].(float64); ok {
 		port = int(p)
@@ -826,15 +829,26 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 	// Add WARP outbound if enabled
 	finalOutbound := "direct"
 	if warpEnabled && db != nil {
+		fmt.Printf("WARP enabled, attempting to get outbound config\n")
 		if sqlDB, ok := db.(*sql.DB); ok {
+			fmt.Printf("DB type assertion successful\n")
 			warpService := NewWarpService(sqlDB)
 			warpOutbound, err := warpService.GenerateSingBoxOutbound()
-			if err == nil && warpOutbound != nil {
+			if err != nil {
+				fmt.Printf("WARP outbound generation failed: %v\n", err)
+			} else if warpOutbound != nil {
+				fmt.Printf("WARP outbound generated successfully, setting final to warp-out\n")
 				outbounds = append(outbounds, warpOutbound)
 				finalOutbound = "warp-out"
 			}
+		} else {
+			fmt.Printf("DB type assertion failed, db type is %T\n", db)
 		}
+	} else {
+		fmt.Printf("WARP not enabled or db is nil (warpEnabled=%v, db=%v)\n", warpEnabled, db != nil)
 	}
+	
+	fmt.Printf("Final outbound: %s, total outbounds: %d\n", finalOutbound, len(outbounds))
 	
 	singboxConfig["outbounds"] = outbounds
 	

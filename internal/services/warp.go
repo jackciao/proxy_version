@@ -350,26 +350,33 @@ func (s *WarpService) DeleteConfig() error {
 	return nil
 }
 
-// GenerateSingBoxOutbound generates sing-box WireGuard outbound config
+// GenerateSingBoxOutbound generates sing-box WireGuard outbound config for sing-box 1.11+
+// Returns both the endpoint and outbound configs
 func (s *WarpService) GenerateSingBoxOutbound() (map[string]interface{}, error) {
 	config, err := s.GetConfig()
 	if err != nil || config == nil {
 		return nil, fmt.Errorf("WARP 未配置")
 	}
 
+	// New sing-box 1.11+ format: use endpoint instead of legacy wireguard outbound
+	// The outbound references the endpoint
 	outbound := map[string]interface{}{
-		"type":        "wireguard",
-		"tag":         "warp-out",
-		"server":      strings.Split(config.Endpoint, ":")[0],
-		"server_port": 2408, // Default WARP port
+		"type": "wireguard",
+		"tag":  "warp-out",
 		"local_address": []string{
 			config.IPv4Address,
 			config.IPv6Address,
 		},
 		"private_key": config.PrivateKey,
-		"peer_public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", // Cloudflare WARP public key
-		"reserved":    []int{0, 0, 0},
-		"mtu":         1280,
+		"peers": []map[string]interface{}{
+			{
+				"server":      strings.Split(config.Endpoint, ":")[0],
+				"server_port": 2408,
+				"public_key":  "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", // Cloudflare WARP public key
+				"reserved":    []int{0, 0, 0},
+			},
+		},
+		"mtu": 1280,
 	}
 
 	return outbound, nil

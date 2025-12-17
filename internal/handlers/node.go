@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -243,6 +244,9 @@ func StartNode(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 			return
 		}
+
+		// Debug log
+		log.Printf("Starting node %d with warp_enabled=%d", nodeID, warpEnabled)
 
 		proxyService := services.NewProxyService()
 		if err := proxyService.StartNode(nodeID, node.Protocol, config.String, warpEnabled == 1, db); err != nil {
