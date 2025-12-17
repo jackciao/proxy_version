@@ -455,37 +455,36 @@ func (d *DetectorService) CheckPortAvailability(port int, ip string) PortCheckRe
 		IP:   ip,
 	}
 
+	// Use nsenter to check port on host system
+	var script string
 	if ip == "" {
-		ip = "0.0.0.0"
+		// Check all interfaces
+		script = fmt.Sprintf("ss -tlnp 'sport = :%d' 2>/dev/null | grep -v State", port)
+	} else if strings.Contains(ip, ":") {
+		// IPv6 address - check only IPv6 binding
+		script = fmt.Sprintf("ss -tlnp 'sport = :%d' 2>/dev/null | grep -E '\\[%s\\]:%d|\\[::\\]:%d' | head -1", port, ip, port, port)
+	} else {
+		// IPv4 address - check only IPv4 binding
+		script = fmt.Sprintf("ss -tlnp 'sport = :%d' 2>/dev/null | grep -E '%s:%d|0\\.0\\.0\\.0:%d' | head -1", port, ip, port, port)
 	}
 
-	// Try to listen on the port
-	addr := fmt.Sprintf("%s:%d", ip, port)
-	if strings.Contains(ip, ":") {
-		addr = fmt.Sprintf("[%s]:%d", ip, port)
-	}
-
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
+	cmd := exec.Command("nsenter", "-t", "1", "-n", "bash", "-c", script)
+	output, err := cmd.CombinedOutput()
+	
+	outputStr := strings.TrimSpace(string(output))
+	
+	if err != nil || outputStr == "" {
+		// Port is available
+		result.Available = true
+	} else {
+		// Port is occupied
 		result.Available = false
 		result.OccupiedBy = "端口已被占用"
-
-		// Try to get process info using lsof/ss
-		if output, err := exec.Command("ss", "-tlnp", fmt.Sprintf("sport = :%d", port)).Output(); err == nil {
-			lines := strings.Split(string(output), "\n")
-			for _, line := range lines {
-				if strings.Contains(line, fmt.Sprintf(":%d", port)) {
-					// Extract process name
-					if idx := strings.Index(line, "users:"); idx != -1 {
-						result.ProcessName = line[idx:]
-					}
-					break
-				}
-			}
+		
+		// Extract process name
+		if idx := strings.Index(outputStr, "users:"); idx != -1 {
+			result.ProcessName = outputStr[idx:]
 		}
-	} else {
-		listener.Close()
-		result.Available = true
 	}
 
 	return result

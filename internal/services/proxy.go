@@ -1022,18 +1022,39 @@ func getExternalIPv6() string {
 func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config map[string]interface{}) (ShareInfo, error) {
 	info := ShareInfo{Remarks: nodeName}
 	
-	// Auto-detect server IPs for dual-stack support
-	ipv4, ipv6 := getServerIPs()
-	info.ServerIPv4 = ipv4
-	info.ServerIPv6 = ipv6
+	// Check if node is bound to a specific IP (listen parameter)
+	listenIP := ""
+	if li, ok := config["listen"].(string); ok && li != "" && li != "::" && li != "0.0.0.0" {
+		listenIP = li
+	}
+	
+	// If bound to specific IP, only use that IP
+	if listenIP != "" {
+		if strings.Contains(listenIP, ":") {
+			// IPv6 only
+			info.ServerIPv6 = listenIP
+			info.ServerIPv4 = ""
+		} else {
+			// IPv4 only
+			info.ServerIPv4 = listenIP
+			info.ServerIPv6 = ""
+		}
+	} else {
+		// Auto-detect server IPs for dual-stack support
+		ipv4, ipv6 := getServerIPs()
+		info.ServerIPv4 = ipv4
+		info.ServerIPv6 = ipv6
+	}
 	
 	// Use provided serverIP or fallback to detected IPs
 	primaryIP := serverIP
 	if primaryIP == "" {
-		if ipv4 != "" {
-			primaryIP = ipv4
-		} else if ipv6 != "" {
-			primaryIP = ipv6
+		if listenIP != "" {
+			primaryIP = listenIP
+		} else if info.ServerIPv4 != "" {
+			primaryIP = info.ServerIPv4
+		} else if info.ServerIPv6 != "" {
+			primaryIP = info.ServerIPv6
 		}
 	}
 	
@@ -1069,19 +1090,19 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 	}
 	
 	// Generate URLs for both IP versions
-	if ipv4 != "" {
-		info.URLIPv4 = generateURL(nodeName+" [IPv4]", ipv4, port, config)
+	if info.ServerIPv4 != "" {
+		info.URLIPv4 = generateURL(nodeName+" [IPv4]", info.ServerIPv4, port, config)
 		info.QRCodeIPv4 = info.URLIPv4
 	}
-	if ipv6 != "" {
-		info.URLIPv6 = generateURL(nodeName+" [IPv6]", ipv6, port, config)
+	if info.ServerIPv6 != "" {
+		info.URLIPv6 = generateURL(nodeName+" [IPv6]", info.ServerIPv6, port, config)
 		info.QRCodeIPv6 = info.URLIPv6
 	}
 	
 	// Primary URL - prefer IPv4 for compatibility
-	if ipv4 != "" {
+	if info.ServerIPv4 != "" {
 		info.URL = info.URLIPv4
-	} else if ipv6 != "" {
+	} else if info.ServerIPv6 != "" {
 		info.URL = info.URLIPv6
 	} else {
 		// Fallback to provided serverIP
@@ -1091,8 +1112,8 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 	
 	// Generate client JSON config with both IPs
 	clientConfig := s.generateClientConfig(primaryIP, port, config)
-	clientConfig["server_ipv4"] = ipv4
-	clientConfig["server_ipv6"] = ipv6
+	clientConfig["server_ipv4"] = info.ServerIPv4
+	clientConfig["server_ipv6"] = info.ServerIPv6
 	if jsonBytes, err := json.MarshalIndent(clientConfig, "", "  "); err == nil {
 		info.JSON = string(jsonBytes)
 	}
