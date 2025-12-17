@@ -87,6 +87,21 @@ func main() {
 				certs.GET("", handlers.ListCertificates(db))
 				certs.POST("/apply", handlers.ApplyCertificate(db))
 			}
+
+			// WARP
+			warp := protected.Group("/warp")
+			{
+				warp.GET("/status", handlers.GetWarpStatus(db))
+				warp.POST("/register", handlers.RegisterWarp(db))
+				warp.POST("/refresh", handlers.RefreshWarp(db))
+				warp.POST("/upgrade", handlers.UpgradeWarp(db))
+				warp.POST("/import", handlers.ImportWarpConfig(db))
+				warp.DELETE("", handlers.DeleteWarpConfig(db))
+				warp.GET("/export", handlers.ExportWarpConfig(db))
+			}
+
+			// Node WARP toggle
+			protected.POST("/nodes/:id/warp", handlers.ToggleNodeWarp(db))
 		}
 	}
 

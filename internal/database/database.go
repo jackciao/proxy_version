@@ -40,6 +40,7 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		port INTEGER NOT NULL,
 		status TEXT DEFAULT 'stopped',
 		config TEXT,
+		warp_enabled INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id)
@@ -58,6 +59,22 @@ func Initialize(dbPath string) (*sql.DB, error) {
 	CREATE TABLE IF NOT EXISTS settings (
 		key TEXT PRIMARY KEY,
 		value TEXT
+	);
+
+	CREATE TABLE IF NOT EXISTS warp_config (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		account_type TEXT DEFAULT 'free',
+		device_id TEXT,
+		access_token TEXT,
+		private_key TEXT,
+		public_key TEXT,
+		ipv4_address TEXT,
+		ipv6_address TEXT,
+		endpoint TEXT,
+		license_key TEXT,
+		team_name TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	`
 

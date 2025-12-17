@@ -355,6 +355,7 @@ class App {
 
     renderNodeCard(n) {
         const pn = this.protocols.find(p => p.id === n.protocol);
+        const warpEnabled = n.warp_enabled === 1 || n.warp_enabled === true;
         return `<div class="node-card" data-node-id="${n.id}">
             <div class="node-header">
                 <span class="node-name">${this.escapeHtml(n.name)}</span>
@@ -364,6 +365,13 @@ class App {
                 <div class="node-info-row"><span class="node-info-label">协议</span><span class="node-info-value">${pn ? pn.name : n.protocol}</span></div>
                 <div class="node-info-row"><span class="node-info-label">域名/IP</span><span class="node-info-value">${n.domain || '-'}</span></div>
                 <div class="node-info-row"><span class="node-info-label">端口</span><span class="node-info-value">${n.port}</span></div>
+                <div class="node-info-row">
+                    <span class="node-info-label">WARP</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" ${warpEnabled ? 'checked' : ''} onchange="app.toggleNodeWarp(${n.id}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
             </div>
             <div class="node-actions">
                 ${n.status === 'running' ? `<button class="btn btn-secondary btn-sm" onclick="app.stopNode(${n.id})">停止</button>` : `<button class="btn btn-success btn-sm" onclick="app.startNode(${n.id})">启动</button>`}
@@ -665,9 +673,107 @@ class App {
             document.getElementById('hostname-info').textContent = s.hostname;
             document.getElementById('singbox-version').textContent = s.singbox_installed ? `v${s.singbox_version}` : '未安装';
             this.loadProxyDetection();
-            this.loadCoreStatus()
+            this.loadCoreStatus();
+            this.loadWarpStatus();
+            this.setupWarpEventHandlers();
         } catch (e) {
             console.error('System info error:', e)
+        }
+    }
+
+    async loadWarpStatus() {
+        try {
+            const s = await API.getWarpStatus();
+            const statusEl = document.getElementById('warp-status');
+            const ipv4Row = document.getElementById('warp-ipv4-row');
+            const ipv6Row = document.getElementById('warp-ipv6-row');
+            const typeRow = document.getElementById('warp-type-row');
+            const registerBtn = document.getElementById('warp-register-btn');
+            const refreshBtn = document.getElementById('warp-refresh-btn');
+            const deleteBtn = document.getElementById('warp-delete-btn');
+            const upgradeSection = document.getElementById('warp-upgrade-section');
+
+            if (s.configured) {
+                statusEl.innerHTML = '<span class="text-success">✓ 已配置</span>';
+                document.getElementById('warp-ipv4').textContent = s.ipv4 || '-';
+                document.getElementById('warp-ipv6').textContent = s.ipv6 ? (s.ipv6.length > 30 ? s.ipv6.substring(0, 30) + '...' : s.ipv6) : '-';
+                document.getElementById('warp-type').textContent = s.account_type === 'plus' ? 'WARP+' : (s.account_type === 'teams' ? 'Zero Trust' : '免费');
+                ipv4Row.style.display = s.ipv4 ? 'flex' : 'none';
+                ipv6Row.style.display = s.ipv6 ? 'flex' : 'none';
+                typeRow.style.display = 'flex';
+                registerBtn.style.display = 'none';
+                refreshBtn.style.display = 'inline-block';
+                deleteBtn.style.display = 'inline-block';
+                upgradeSection.style.display = s.account_type !== 'plus' ? 'block' : 'none';
+            } else {
+                statusEl.innerHTML = '<span class="text-muted">未配置</span>';
+                ipv4Row.style.display = 'none';
+                ipv6Row.style.display = 'none';
+                typeRow.style.display = 'none';
+                registerBtn.style.display = 'inline-block';
+                refreshBtn.style.display = 'none';
+                deleteBtn.style.display = 'none';
+                upgradeSection.style.display = 'none';
+            }
+        } catch (e) {
+            console.error('WARP status error:', e);
+        }
+    }
+
+    setupWarpEventHandlers() {
+        document.getElementById('warp-register-btn')?.addEventListener('click', () => this.registerWarp());
+        document.getElementById('warp-refresh-btn')?.addEventListener('click', () => this.refreshWarp());
+        document.getElementById('warp-delete-btn')?.addEventListener('click', () => this.deleteWarp());
+        document.getElementById('warp-upgrade-btn')?.addEventListener('click', () => this.upgradeWarp());
+    }
+
+    async registerWarp() {
+        this.showToast('正在注册 WARP 账号...', 'info');
+        try {
+            await API.registerWarp();
+            this.showToast('WARP 账号注册成功', 'success');
+            this.loadWarpStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+        }
+    }
+
+    async refreshWarp() {
+        if (!confirm('更换节点将获取新的 WARP IP，确定继续？')) return;
+        this.showToast('正在更换 WARP 节点...', 'info');
+        try {
+            await API.refreshWarp();
+            this.showToast('WARP 节点已更换', 'success');
+            this.loadWarpStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+        }
+    }
+
+    async deleteWarp() {
+        if (!confirm('确定要删除 WARP 配置吗？')) return;
+        try {
+            await API.deleteWarp();
+            this.showToast('WARP 配置已删除', 'success');
+            this.loadWarpStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+        }
+    }
+
+    async upgradeWarp() {
+        const key = document.getElementById('warp-license-key').value.trim();
+        if (!key) {
+            this.showToast('请输入 WARP+ License Key', 'error');
+            return;
+        }
+        this.showToast('正在升级到 WARP+...', 'info');
+        try {
+            await API.upgradeWarp(key);
+            this.showToast('升级成功', 'success');
+            this.loadWarpStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
         }
     }
 
@@ -774,6 +880,23 @@ class App {
             this.loadDashboardData()
         } catch (e) {
             this.showToast(e.message, 'error')
+        }
+    }
+
+    async toggleNodeWarp(id, enabled) {
+        try {
+            await API.toggleNodeWarp(id, enabled);
+            this.showToast(enabled ? 'WARP 已开启' : 'WARP 已关闭', 'success');
+            // Update local node state
+            const node = this.nodes.find(n => n.id === id);
+            if (node) node.warp_enabled = enabled ? 1 : 0;
+            // If node is running, need to restart for WARP to take effect
+            if (node && node.status === 'running') {
+                this.showToast('需要重启节点以应用 WARP 设置', 'info');
+            }
+        } catch (e) {
+            this.showToast(e.message, 'error');
+            this.loadNodes(); // Reload to reset checkbox state
         }
     }
 

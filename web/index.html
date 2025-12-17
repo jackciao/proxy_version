@@ -314,6 +314,50 @@
                                 </p>
                             </div>
                         </div>
+
+                        <div class="card glass">
+                            <div class="card-header">
+                                <h3>🌐 WARP 管理</h3>
+                            </div>
+                            <div class="card-body" id="warp-settings">
+                                <div class="info-row">
+                                    <span class="info-label">状态</span>
+                                    <span class="info-value" id="warp-status">检测中...</span>
+                                </div>
+                                <div class="info-row" id="warp-ipv4-row" style="display:none">
+                                    <span class="info-label">IPv4</span>
+                                    <span class="info-value" id="warp-ipv4">-</span>
+                                </div>
+                                <div class="info-row" id="warp-ipv6-row" style="display:none">
+                                    <span class="info-label">IPv6</span>
+                                    <span class="info-value" id="warp-ipv6">-</span>
+                                </div>
+                                <div class="info-row" id="warp-type-row" style="display:none">
+                                    <span class="info-label">账号类型</span>
+                                    <span class="info-value" id="warp-type">-</span>
+                                </div>
+                                <div class="btn-group" style="margin-top:var(--space-md)">
+                                    <button class="btn btn-primary btn-sm" id="warp-register-btn">注册免费账号</button>
+                                    <button class="btn btn-secondary btn-sm" id="warp-refresh-btn"
+                                        style="display:none">更换节点</button>
+                                    <button class="btn btn-danger btn-sm" id="warp-delete-btn"
+                                        style="display:none">删除配置</button>
+                                </div>
+                                <div id="warp-upgrade-section" style="margin-top:var(--space-md);display:none">
+                                    <div class="form-group">
+                                        <label>WARP+ License Key</label>
+                                        <div style="display:flex;gap:var(--space-sm)">
+                                            <input type="text" id="warp-license-key" class="form-input"
+                                                placeholder="输入 WARP+ 许可证密钥">
+                                            <button class="btn btn-primary btn-sm" id="warp-upgrade-btn">升级</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="text-muted" style="font-size:0.8rem;margin-top:var(--space-md)">
+                                    💡 WARP 可让节点流量通过 Cloudflare 网络，解锁流媒体并保护隐私
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </main>

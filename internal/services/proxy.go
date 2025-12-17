@@ -2,6 +2,7 @@ package services
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -408,7 +409,7 @@ func (s *ProxyService) generateShadowsocks2022Config(domain string, port int, co
 	}, nil
 }
 
-func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string) error {
+func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warpEnabled bool, db interface{}) error {
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return fmt.Errorf("配置解析失败: %v", err)
@@ -423,7 +424,7 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string) erro
 	}
 
 	// Generate sing-box compatible config
-	singboxConfig, err := s.generateSingBoxConfig(config)
+	singboxConfig, err := s.generateSingBoxConfig(config, warpEnabled, db)
 	if err != nil {
 		return fmt.Errorf("生成配置失败: %v", err)
 	}
@@ -503,7 +504,7 @@ func (s *ProxyService) runOnHost(command string, args ...string) (string, error)
 }
 
 // generateSingBoxConfig generates a sing-box compatible configuration
-func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}) (map[string]interface{}, error) {
+func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled bool, db interface{}) (map[string]interface{}, error) {
 	port := 443
 	if p, ok := config["port"].(float64); ok {
 		port = int(p)
@@ -811,7 +812,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}) (map
 	singboxConfig["inbounds"] = []map[string]interface{}{inbound}
 	
 	// Add outbounds - required for proxy to forward traffic
-	singboxConfig["outbounds"] = []map[string]interface{}{
+	outbounds := []map[string]interface{}{
 		{
 			"type": "direct",
 			"tag":  "direct",
@@ -822,9 +823,24 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}) (map
 		},
 	}
 	
-	// Add route - direct all traffic
+	// Add WARP outbound if enabled
+	finalOutbound := "direct"
+	if warpEnabled && db != nil {
+		if sqlDB, ok := db.(*sql.DB); ok {
+			warpService := NewWarpService(sqlDB)
+			warpOutbound, err := warpService.GenerateSingBoxOutbound()
+			if err == nil && warpOutbound != nil {
+				outbounds = append(outbounds, warpOutbound)
+				finalOutbound = "warp-out"
+			}
+		}
+	}
+	
+	singboxConfig["outbounds"] = outbounds
+	
+	// Add route - direct all traffic to final outbound
 	singboxConfig["route"] = map[string]interface{}{
-		"final": "direct",
+		"final": finalOutbound,
 	}
 	
 	return singboxConfig, nil
