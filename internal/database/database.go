@@ -79,5 +79,20 @@ func Initialize(dbPath string) (*sql.DB, error) {
 	`
 
 	_, err = db.Exec(schema)
-	return db, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Run migrations for existing databases
+	migrations := []string{
+		// Add warp_enabled column to nodes table if it doesn't exist
+		"ALTER TABLE nodes ADD COLUMN warp_enabled INTEGER DEFAULT 0",
+	}
+
+	for _, m := range migrations {
+		// Ignore errors for migrations (column may already exist)
+		db.Exec(m)
+	}
+
+	return db, nil
 }
