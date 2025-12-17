@@ -374,6 +374,7 @@ func (s *WarpService) GenerateSingBoxOutbound() (map[string]interface{}, error) 
 				"server_port": 2408,
 				"public_key":  "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", // Cloudflare WARP public key
 				"reserved":    []int{0, 0, 0},
+				"allowed_ips": []string{"0.0.0.0/0", "::/0"},
 			},
 		},
 		"mtu": 1280,
