@@ -14,9 +14,9 @@
 
 ## 一键脚本安装
 
-‘’‘bash
+```bash
 curl -fsSL https://raw.githubusercontent.com/jackciao/proxy_version/main/deploy/install.sh | bash
-、、、
+```
 
 这个命令会自动：
 
