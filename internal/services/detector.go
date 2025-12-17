@@ -455,37 +455,86 @@ func (d *DetectorService) CheckPortAvailability(port int, ip string) PortCheckRe
 		IP:   ip,
 	}
 
-	// Use nsenter to check port on host system
-	var script string
-	if ip == "" {
-		// Check all interfaces
-		script = fmt.Sprintf("ss -tlnp 'sport = :%d' 2>/dev/null | grep -v State", port)
-	} else if strings.Contains(ip, ":") {
-		// IPv6 address - check only IPv6 binding
-		script = fmt.Sprintf("ss -tlnp 'sport = :%d' 2>/dev/null | grep -E '\\[%s\\]:%d|\\[::\\]:%d' | head -1", port, ip, port, port)
-	} else {
-		// IPv4 address - check only IPv4 binding
-		script = fmt.Sprintf("ss -tlnp 'sport = :%d' 2>/dev/null | grep -E '%s:%d|0\\.0\\.0\\.0:%d' | head -1", port, ip, port, port)
+	// Use netstat to check port since container uses host network mode
+	cmd := exec.Command("netstat", "-tlnp")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Fallback: try to bind to the port directly
+		addr := fmt.Sprintf(":%d", port)
+		if ip != "" {
+			if strings.Contains(ip, ":") {
+				addr = fmt.Sprintf("[%s]:%d", ip, port)
+			} else {
+				addr = fmt.Sprintf("%s:%d", ip, port)
+			}
+		}
+		listener, lerr := net.Listen("tcp", addr)
+		if lerr != nil {
+			result.Available = false
+			result.OccupiedBy = "端口已被占用"
+		} else {
+			listener.Close()
+			result.Available = true
+		}
+		return result
 	}
 
-	cmd := exec.Command("nsenter", "-t", "1", "-n", "bash", "-c", script)
-	output, err := cmd.CombinedOutput()
+	lines := strings.Split(string(output), "\n")
+	portStr := fmt.Sprintf(":%d", port)
 	
-	outputStr := strings.TrimSpace(string(output))
-	
-	if err != nil || outputStr == "" {
-		// Port is available
-		result.Available = true
-	} else {
-		// Port is occupied
-		result.Available = false
-		result.OccupiedBy = "端口已被占用"
+	for _, line := range lines {
+		if !strings.Contains(line, portStr) {
+			continue
+		}
 		
-		// Extract process name
-		if idx := strings.Index(outputStr, "users:"); idx != -1 {
-			result.ProcessName = outputStr[idx:]
+		// Check if this line matches the port we're looking for
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		
+		localAddr := fields[3]
+		
+		// Parse the local address
+		if !strings.Contains(localAddr, portStr) {
+			continue
+		}
+		
+		// Check IP-specific binding
+		if ip == "" {
+			// User didn't specify IP, any binding means port is occupied
+			result.Available = false
+			result.OccupiedBy = "端口已被占用"
+			if len(fields) >= 7 {
+				result.ProcessName = fields[6]
+			}
+			return result
+		}
+		
+		// User specified a specific IP
+		if strings.Contains(ip, ":") {
+			// IPv6 - check if binding is to this specific IPv6 or all IPv6 (:::port)
+			if strings.HasPrefix(localAddr, ":::") || strings.Contains(localAddr, "["+ip+"]") {
+				result.Available = false
+				result.OccupiedBy = "端口已被占用"
+				if len(fields) >= 7 {
+					result.ProcessName = fields[6]
+				}
+				return result
+			}
+		} else {
+			// IPv4 - check if binding is to this specific IPv4 or all IPv4 (0.0.0.0:port)
+			if strings.HasPrefix(localAddr, "0.0.0.0:") || strings.HasPrefix(localAddr, ip+":") {
+				result.Available = false
+				result.OccupiedBy = "端口已被占用"
+				if len(fields) >= 7 {
+					result.ProcessName = fields[6]
+				}
+				return result
+			}
 		}
 	}
 
+	result.Available = true
 	return result
 }

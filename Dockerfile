@@ -19,7 +19,8 @@ RUN apk add --no-cache \
     openssl \
     docker-cli \
     socat \
-    coreutils
+    coreutils \
+    net-tools
 
 # Create symlink for bash compatibility (acme.sh uses #!/usr/bin/bash)
 RUN ln -sf /bin/bash /usr/bin/bash
