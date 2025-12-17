@@ -270,6 +270,11 @@ func (s *ProxyService) generateVLESSRealityConfig(domain string, port int, confi
 		"fingerprint": "chrome",
 	}
 
+	// Preserve listen IP if specified
+	if config.Listen != "" {
+		result["listen"] = config.Listen
+	}
+
 	if transport == "grpc" {
 		result["serviceName"] = config.Path
 		if result["serviceName"] == "" || result["serviceName"] == "grpc" {

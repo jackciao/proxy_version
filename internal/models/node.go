@@ -62,4 +62,5 @@ type NodeConfig struct {
 	CertPath       string `json:"cert_path,omitempty"`
 	KeyPath        string `json:"key_path,omitempty"`
 	CongestionCtrl string `json:"congestion_ctrl,omitempty"`
+	Listen         string `json:"listen,omitempty"` // IP to bind to (for port 443 sharing)
 }
