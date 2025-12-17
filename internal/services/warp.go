@@ -84,15 +84,18 @@ func (s *WarpService) InstallWgcf() error {
 		arch = "arm64"
 	}
 
-	// Download wgcf
-	url := fmt.Sprintf("https://github.com/ViRb3/wgcf/releases/latest/download/wgcf_%s_linux_%s", "2.2.22", arch)
+	// Download wgcf from GitHub releases
+	// Format: https://github.com/ViRb3/wgcf/releases/download/v2.2.22/wgcf_2.2.22_linux_amd64
+	version := "2.2.22"
+	url := fmt.Sprintf("https://github.com/ViRb3/wgcf/releases/download/v%s/wgcf_%s_linux_%s", version, version, arch)
 	
 	cmd := exec.Command("bash", "-c", fmt.Sprintf(
 		"curl -fsSL -o %s %s && chmod +x %s",
 		wgcfPath, url, wgcfPath,
 	))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("安装 wgcf 失败: %v", err)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("安装 wgcf 失败: %v, output: %s", err, string(output))
 	}
 
 	return nil
