@@ -453,6 +453,7 @@ After=network.target
 
 [Service]
 Type=simple
+Environment=ENABLE_DEPRECATED_WIREGUARD_OUTBOUND=true
 ExecStart=/etc/v2ray-agent/sing-box/sing-box run -c %s
 Restart=on-failure
 RestartSec=5
