@@ -670,6 +670,8 @@ class App {
         const expiresStr = ct.expires_at ? new Date(ct.expires_at).toLocaleDateString('zh-CN') : '-';
         const renewStr = ct.next_renew_at ? new Date(ct.next_renew_at).toLocaleDateString('zh-CN') + ' (自动)' : '自动续签 (到期前60天)';
         const acmePath = ct.acme_path || `/root/.acme.sh/${ct.domain}_ecc`;
+        const acmeCertPath = `${acmePath}/${ct.domain}.cer`;
+        const acmeKeyPath = `${acmePath}/${ct.domain}.key`;
 
         return `<div class="node-card cert-card">
             <div class="node-header">
@@ -687,19 +689,22 @@ class App {
                 </div>
             </div>
             <div class="cert-paths" style="margin-top:var(--space-md);padding-top:var(--space-md);border-top:1px solid var(--border-color)">
-                <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">📂 使用路径</div>
+                <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">📂 使用路径 (推荐用于伪装站点)</div>
                 <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">
                     <div>证书: ${ct.cert_path}</div>
                     <div>私钥: ${ct.key_path}</div>
                 </div>
-                <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:var(--space-md);margin-bottom:var(--space-sm)">📂 原始路径</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${acmePath}</div>
+                <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:var(--space-md);margin-bottom:var(--space-sm)">📂 原始路径 (acme.sh 源文件)</div>
+                <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">
+                    <div>证书: ${acmeCertPath}</div>
+                    <div>私钥: ${acmeKeyPath}</div>
+                </div>
             </div>
             <div class="cert-warning" style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm)">
                 <div style="font-size:0.8rem;color:#f59e0b">⚠️ 为提升节点抗检测能力，请配置伪装站点</div>
                 <div style="margin-top:var(--space-xs);font-size:0.75rem">
-                    <a href="https://1panel.cn/docs/user_manual/websites/" target="_blank" style="color:var(--accent-primary);margin-right:var(--space-md)">📖 1Panel 教程</a>
-                    <a href="https://www.aapanel.com/new/FAQ_list.html" target="_blank" style="color:var(--accent-primary)">📖 aaPanel 教程</a>
+                    <a href="https://1panel.cn/docs/installation/online_installation/" target="_blank" style="color:var(--accent-primary);margin-right:var(--space-md)">📖 1Panel 教程</a>
+                    <a href="https://www.bt.cn/new/index.html" target="_blank" style="color:var(--accent-primary)">📖 宝塔面板 教程</a>
                 </div>
             </div>
         </div>`;
