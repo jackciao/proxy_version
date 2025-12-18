@@ -4,9 +4,21 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; PU
 INSTALL_DIR="/opt/proxy_version"; DATA_DIR="${INSTALL_DIR}/data"; DB_PATH="${DATA_DIR}/proxy_version.db"
 API_URL="http://127.0.0.1:8080/api"
 
+# Determine if sudo is needed for docker
+if docker ps &>/dev/null 2>&1; then
+    DOCKER_CMD="docker"
+    COMPOSE_CMD="docker compose"
+elif sudo docker ps &>/dev/null 2>&1; then
+    DOCKER_CMD="sudo docker"
+    COMPOSE_CMD="sudo docker compose"
+else
+    DOCKER_CMD="docker"
+    COMPOSE_CMD="docker compose"
+fi
+
 print_banner() { echo -e "${PURPLE}\n╔═══════════════════════════════════════════════════════╗\n║            🌐 Proxy Version 管理工具                  ║\n╚═══════════════════════════════════════════════════════╝${NC}"; }
 
-check_container() { docker ps --format '{{.Names}}' | grep -q "^proxy_version$"; }
+check_container() { $DOCKER_CMD ps --format '{{.Names}}' 2>/dev/null | grep -q "^proxy_version$"; }
 
 ensure_sqlite3() { command -v sqlite3 &>/dev/null || { apt update && apt install -y sqlite3 2>/dev/null || yum install -y sqlite 2>/dev/null; }; }
 
@@ -93,8 +105,8 @@ reinstall() {
     read -p "继续? (y/N): " cf
     if [[ "$cf" =~ ^[Yy]$ ]]; then
         cd "$INSTALL_DIR"
-        docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
-        docker compose up -d --build
+        $COMPOSE_CMD down 2>/dev/null || true
+        $COMPOSE_CMD up -d --build
         echo -e "\n${GREEN}✓ 重新安装完成！${NC}\n"
     fi
 }
@@ -106,22 +118,25 @@ update_system() {
     if [[ "$cf" =~ ^[Yy]$ ]]; then
         cd "$INSTALL_DIR"
         
+        # 配置 git safe.directory (解决不同用户操作的权限问题)
+        git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+        
         # 拉取最新代码
         echo -e "\n${YELLOW}[1/4] 拉取最新代码...${NC}"
         git pull
         
         # 停止现有容器
         echo -e "${YELLOW}[2/4] 停止现有容器...${NC}"
-        docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
+        $COMPOSE_CMD down 2>/dev/null || true
         
         # 删除旧镜像
         echo -e "${YELLOW}[3/4] 删除旧镜像...${NC}"
-        docker rmi proxy_version-proxy_version 2>/dev/null || true
-        docker rmi proxy_version_proxy_version 2>/dev/null || true
+        $DOCKER_CMD rmi proxy_version-proxy_version 2>/dev/null || true
+        $DOCKER_CMD rmi proxy_version_proxy_version 2>/dev/null || true
         
         # 重新构建并启动
         echo -e "${YELLOW}[4/4] 构建新镜像并启动...${NC}"
-        docker compose up -d --build
+        $COMPOSE_CMD up -d --build
         
         echo -e "\n${GREEN}✓ 更新完成！${NC}\n"
     fi
@@ -136,19 +151,19 @@ uninstall() {
         
         # 停止并删除容器
         echo -e "\n${YELLOW}[1/4] 停止并删除容器...${NC}"
-        docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
+        $COMPOSE_CMD down 2>/dev/null || true
         
         # 删除 Docker 镜像
         echo -e "${YELLOW}[2/4] 删除 Docker 镜像...${NC}"
-        docker rmi proxy_version-proxy_version 2>/dev/null || true
-        docker rmi proxy_version_proxy_version 2>/dev/null || true
+        $DOCKER_CMD rmi proxy_version-proxy_version 2>/dev/null || true
+        $DOCKER_CMD rmi proxy_version_proxy_version 2>/dev/null || true
         
         # 询问是否删除数据
         read -p "删除所有数据（节点配置、证书、数据库等）? (y/N): " dd
         if [[ "$dd" =~ ^[Yy]$ ]]; then
             echo -e "${YELLOW}[3/4] 删除数据目录...${NC}"
-            rm -rf "$DATA_DIR"
-            rm -rf /etc/v2ray-agent
+            sudo rm -rf "$DATA_DIR" 2>/dev/null || rm -rf "$DATA_DIR"
+            sudo rm -rf /etc/v2ray-agent 2>/dev/null || rm -rf /etc/v2ray-agent
             echo -e "${GREEN}✓ 数据已删除${NC}"
         else
             echo -e "${YELLOW}[3/4] 跳过删除数据${NC}"
@@ -156,7 +171,7 @@ uninstall() {
         
         # 删除 CLI 符号链接
         echo -e "${YELLOW}[4/4] 删除命令行工具...${NC}"
-        rm -f /usr/local/bin/proxy_version
+        sudo rm -f /usr/local/bin/proxy_version 2>/dev/null || rm -f /usr/local/bin/proxy_version
         
         echo -e "\n${GREEN}✓ 卸载完成！${NC}"
         echo -e "${YELLOW}如需完全清理项目文件，可手动删除: $INSTALL_DIR${NC}\n"
