@@ -72,6 +72,6 @@ ${GREEN}╔═══════════════════════
   ${CYAN}管理命令:${NC} proxy_version
 "
 
-# 自动运行 CLI
+# 自动运行 CLI（使用 exec 启动新的交互式 shell 以避免 stdin 被管道占用）
 sleep 2
-/usr/local/bin/proxy_version
+exec bash -c '/usr/local/bin/proxy_version'

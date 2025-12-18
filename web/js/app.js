@@ -282,7 +282,8 @@ class App {
         window.uninstallCore = (c) => this.uninstallCore(c);
         window.shareNode = (id) => this.shareNode(id);
         window.editNode = (id) => this.editNode(id);
-        window.copyToClipboard = (text) => this.copyToClipboard(text)
+        window.copyToClipboard = (text) => this.copyToClipboard(text);
+        window.showWarpTutorial = () => this.openModal('warp-tutorial-modal');
     }
 
     navigateTo(p) {

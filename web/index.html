@@ -351,6 +351,10 @@
                                                 placeholder="输入 WARP+ 许可证密钥">
                                             <button class="btn btn-primary btn-sm" id="warp-upgrade-btn">升级</button>
                                         </div>
+                                        <a href="#" onclick="showWarpTutorial(); return false;"
+                                            style="display:inline-block;margin-top:var(--space-sm);font-size:0.85rem;color:var(--accent-primary)">
+                                            📖 点击查看获取教程
+                                        </a>
                                     </div>
                                 </div>
                                 <p class="text-muted" style="font-size:0.8rem;margin-top:var(--space-md)">
@@ -397,7 +401,7 @@
                                 <ul>
                                     <li><b>VLESS Reality</b> - 无需域名，最强抗检测</li>
                                     <li><b>Hysteria2</b> - 超高速度，适合视频</li>
-                                    <li><b>Trojan</b> - 简单高效，兼容性好</li>
+                                    <li><b>TUIC</b> - 基于 QUIC，低延迟高性能</li>
                                 </ul>
                             </div>
                         </div>
@@ -706,6 +710,49 @@
                             <button type="submit" class="btn btn-primary">保存修改</button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <!-- WARP+ Tutorial Modal -->
+            <div id="warp-tutorial-modal" class="modal glass hidden">
+                <div class="modal-header">
+                    <h2>📖 WARP+ License Key 获取教程</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tutorial-content">
+                        <h4>方法一：通过 1.1.1.1 App 获取</h4>
+                        <ol style="margin-left:var(--space-md);color:var(--text-secondary);font-size:0.9rem;">
+                            <li style="margin-bottom:var(--space-xs)">在手机上下载 <b>1.1.1.1 (Cloudflare WARP)</b> App</li>
+                            <li style="margin-bottom:var(--space-xs)">打开 App，点击右上角菜单 → <b>账户</b></li>
+                            <li style="margin-bottom:var(--space-xs)">点击 <b>按键</b> 查看当前的 License Key</li>
+                            <li style="margin-bottom:var(--space-xs)">如果需要 WARP+ 无限流量，可通过邀请好友获得</li>
+                        </ol>
+
+                        <h4 style="margin-top:var(--space-lg)">方法二：通过 Telegram Bot 获取</h4>
+                        <ol style="margin-left:var(--space-md);color:var(--text-secondary);font-size:0.9rem;">
+                            <li style="margin-bottom:var(--space-xs)">打开 Telegram，搜索 <b>@waborwarp_bot</b></li>
+                            <li style="margin-bottom:var(--space-xs)">发送 <b>/start</b> 启动机器人</li>
+                            <li style="margin-bottom:var(--space-xs)">按提示完成任务即可获得 WARP+ Key</li>
+                        </ol>
+
+                        <h4 style="margin-top:var(--space-lg)">方法三：购买订阅</h4>
+                        <ol style="margin-left:var(--space-md);color:var(--text-secondary);font-size:0.9rem;">
+                            <li style="margin-bottom:var(--space-xs)">在 1.1.1.1 App 中订阅 <b>WARP+</b> 服务</li>
+                            <li style="margin-bottom:var(--space-xs)">订阅后在账户页面获取 License Key</li>
+                        </ol>
+
+                        <div class="cert-info-box" style="margin-top:var(--space-lg)">
+                            <p>💡 <strong>提示</strong></p>
+                            <ul>
+                                <li>License Key 格式类似：<code
+                                        style="background:var(--bg-tertiary);padding:0.15rem 0.4rem;border-radius:var(--radius-sm);font-size:0.85rem;">xxxxxxxx-xxxxxxxx-xxxxxxxx</code>
+                                </li>
+                                <li>每个 Key 最多可绑定 5 台设备</li>
+                                <li>升级后流量无限制，速度更快</li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

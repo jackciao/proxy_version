@@ -93,21 +93,74 @@ reinstall() {
     read -p "继续? (y/N): " cf
     if [[ "$cf" =~ ^[Yy]$ ]]; then
         cd "$INSTALL_DIR"
-        docker-compose down 2>/dev/null || true
-        docker-compose up -d --build
+        docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
+        docker compose up -d --build
         echo -e "\n${GREEN}✓ 重新安装完成！${NC}\n"
     fi
 }
 
-uninstall() {
-    echo -e "\n${RED}⚠️ 将停止并删除容器${NC}"
-    read -p "继续? (y/N): " cf
+update_system() {
+    echo -e "\n${CYAN}🔄 更新系统${NC}"
+    echo -e "${YELLOW}将拉取最新代码、删除旧镜像并重建容器${NC}"
+    read -p "确定要更新到最新版本? (y/N): " cf
     if [[ "$cf" =~ ^[Yy]$ ]]; then
         cd "$INSTALL_DIR"
-        docker-compose down 2>/dev/null || true
-        read -p "同时删除数据? (y/N): " dd
-        [[ "$dd" =~ ^[Yy]$ ]] && rm -rf "$DATA_DIR"
-        echo -e "\n${GREEN}✓ 卸载完成！${NC}\n"
+        
+        # 拉取最新代码
+        echo -e "\n${YELLOW}[1/4] 拉取最新代码...${NC}"
+        git pull
+        
+        # 停止现有容器
+        echo -e "${YELLOW}[2/4] 停止现有容器...${NC}"
+        docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
+        
+        # 删除旧镜像
+        echo -e "${YELLOW}[3/4] 删除旧镜像...${NC}"
+        docker rmi proxy_version-proxy_version 2>/dev/null || true
+        docker rmi proxy_version_proxy_version 2>/dev/null || true
+        
+        # 重新构建并启动
+        echo -e "${YELLOW}[4/4] 构建新镜像并启动...${NC}"
+        docker compose up -d --build
+        
+        echo -e "\n${GREEN}✓ 更新完成！${NC}\n"
+    fi
+}
+
+uninstall() {
+    echo -e "\n${RED}⚠️ 卸载 Proxy Version${NC}"
+    echo -e "${YELLOW}将删除容器、镜像和所有相关数据${NC}"
+    read -p "确定要完全卸载? (y/N): " cf
+    if [[ "$cf" =~ ^[Yy]$ ]]; then
+        cd "$INSTALL_DIR"
+        
+        # 停止并删除容器
+        echo -e "\n${YELLOW}[1/4] 停止并删除容器...${NC}"
+        docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
+        
+        # 删除 Docker 镜像
+        echo -e "${YELLOW}[2/4] 删除 Docker 镜像...${NC}"
+        docker rmi proxy_version-proxy_version 2>/dev/null || true
+        docker rmi proxy_version_proxy_version 2>/dev/null || true
+        
+        # 询问是否删除数据
+        read -p "删除所有数据（节点配置、证书、数据库等）? (y/N): " dd
+        if [[ "$dd" =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}[3/4] 删除数据目录...${NC}"
+            rm -rf "$DATA_DIR"
+            rm -rf /etc/v2ray-agent
+            echo -e "${GREEN}✓ 数据已删除${NC}"
+        else
+            echo -e "${YELLOW}[3/4] 跳过删除数据${NC}"
+        fi
+        
+        # 删除 CLI 符号链接
+        echo -e "${YELLOW}[4/4] 删除命令行工具...${NC}"
+        rm -f /usr/local/bin/proxy_version
+        
+        echo -e "\n${GREEN}✓ 卸载完成！${NC}"
+        echo -e "${YELLOW}如需完全清理项目文件，可手动删除: $INSTALL_DIR${NC}\n"
+        exit 0
     fi
 }
 
@@ -131,14 +184,16 @@ main_menu() {
         echo -e "  ${YELLOW}1.${NC} 创建用户"
         echo -e "  ${YELLOW}2.${NC} 管理用户"
         echo -e "  ${YELLOW}3.${NC} 重新安装"
-        echo -e "  ${YELLOW}4.${NC} 卸载"
+        echo -e "  ${YELLOW}4.${NC} 更新系统"
+        echo -e "  ${YELLOW}5.${NC} 卸载"
         echo -e "  ${YELLOW}0.${NC} 退出\n"
-        read -p "选择 [0-4]: " choice
+        read -p "选择 [0-5]: " choice
         case $choice in
             1) create_user ;;
             2) manage_users ;;
             3) reinstall ;;
-            4) uninstall ;;
+            4) update_system ;;
+            5) uninstall ;;
             0) echo -e "\n${GREEN}再见！${NC}\n"; exit 0 ;;
             *) echo -e "${RED}无效选择${NC}" ;;
         esac
