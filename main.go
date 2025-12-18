@@ -86,6 +86,7 @@ func main() {
 			{
 				certs.GET("", handlers.ListCertificates(db))
 				certs.POST("/apply", handlers.ApplyCertificate(db))
+				certs.DELETE("/:domain", handlers.DeleteCertificate(db))
 			}
 
 			// WARP

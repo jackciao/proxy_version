@@ -45,6 +45,7 @@ const API = {
     // Certificates
     getCertificates() { return this.get('/certificates') },
     applyCertificate(d) { return this.post('/certificates/apply', d) },
+    deleteCertificate(domain) { return this.delete(`/certificates/${encodeURIComponent(domain)}`) },
     // WARP
     getWarpStatus() { return this.get('/warp/status') },
     registerWarp() { return this.post('/warp/register', {}) },

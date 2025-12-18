@@ -323,3 +323,65 @@ func (s *CertificateService) RenewCertificate(domain string) error {
 	}
 	return nil
 }
+
+// CertificateInfo contains detailed information about a certificate
+type CertificateInfo struct {
+	Domain       string    `json:"domain"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	NextRenewAt  time.Time `json:"next_renew_at"`
+	CertPath     string    `json:"cert_path"`
+	KeyPath      string    `json:"key_path"`
+	AcmePath     string    `json:"acme_path"`
+	Provider     string    `json:"provider"`
+}
+
+// GetCertificateInfo returns detailed information about a certificate
+func (s *CertificateService) GetCertificateInfo(domain string) (*CertificateInfo, error) {
+	info := &CertificateInfo{
+		Domain:   domain,
+		CertPath: filepath.Join(s.certDir, domain+".crt"),
+		KeyPath:  filepath.Join(s.certDir, domain+".key"),
+		AcmePath: fmt.Sprintf("/root/.acme.sh/%s_ecc", domain),
+	}
+
+	// Get expiry from certificate
+	expiry, err := s.GetCertificateExpiry(domain)
+	if err == nil {
+		info.ExpiresAt = expiry
+	}
+
+	// Get next renewal time from acme.sh config
+	confPath := fmt.Sprintf("/root/.acme.sh/%s_ecc/%s.conf", domain, domain)
+	confData, err := os.ReadFile(confPath)
+	if err == nil {
+		lines := strings.Split(string(confData), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "Le_NextRenewTimeStr=") {
+				timeStr := strings.Trim(strings.TrimPrefix(line, "Le_NextRenewTimeStr="), "'\"")
+				if renewTime, err := time.Parse(time.RFC3339, timeStr); err == nil {
+					info.NextRenewAt = renewTime
+				}
+			}
+		}
+	}
+
+	return info, nil
+}
+
+// DeleteCertificate removes a certificate from the system
+func (s *CertificateService) DeleteCertificate(domain string) error {
+	// Remove from acme.sh
+	s.runAcme("--remove", "-d", domain, "--ecc")
+
+	// Delete certificate files
+	certPath := filepath.Join(s.certDir, domain+".crt")
+	keyPath := filepath.Join(s.certDir, domain+".key")
+	os.Remove(certPath)
+	os.Remove(keyPath)
+
+	// Optionally remove acme.sh directory (keep for now to allow re-issue)
+	// os.RemoveAll(fmt.Sprintf("/root/.acme.sh/%s_ecc", domain))
+
+	return nil
+}
+

@@ -660,9 +660,59 @@ class App {
                 c.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" width="64" height="64"><path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg><p>暂无证书</p><button class="btn btn-primary" onclick="app.openModal(\'apply-cert-modal\')">申请第一个证书</button></div>';
                 return
             }
-            c.innerHTML = `<div class="certs-grid">${this.certificates.map(ct => `<div class="node-card"><div class="node-header"><span class="node-name">${this.escapeHtml(ct.domain)}</span></div><div class="node-info"><div class="node-info-row"><span class="node-info-label">证书路径</span><span class="node-info-value" style="font-size:0.75rem">${ct.cert_path}</span></div><div class="node-info-row"><span class="node-info-label">到期时间</span><span class="node-info-value">${ct.expires_at ? new Date(ct.expires_at).toLocaleDateString() : '-'}</span></div></div></div>`).join('')}</div>`
+            c.innerHTML = `<div class="certs-grid">${this.certificates.map(ct => this.renderCertCard(ct)).join('')}</div>`;
         } catch {
             c.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'
+        }
+    }
+
+    renderCertCard(ct) {
+        const expiresStr = ct.expires_at ? new Date(ct.expires_at).toLocaleDateString('zh-CN') : '-';
+        const renewStr = ct.next_renew_at ? new Date(ct.next_renew_at).toLocaleDateString('zh-CN') + ' (自动)' : '自动续签 (到期前60天)';
+        const acmePath = ct.acme_path || `/root/.acme.sh/${ct.domain}_ecc`;
+
+        return `<div class="node-card cert-card">
+            <div class="node-header">
+                <span class="node-name">${this.escapeHtml(ct.domain)}</span>
+                <button class="btn btn-danger btn-sm" onclick="app.deleteCertificate('${this.escapeHtml(ct.domain)}')">删除</button>
+            </div>
+            <div class="node-info">
+                <div class="node-info-row">
+                    <span class="node-info-label">到期时间</span>
+                    <span class="node-info-value">${expiresStr}</span>
+                </div>
+                <div class="node-info-row">
+                    <span class="node-info-label">续签时间</span>
+                    <span class="node-info-value">${renewStr}</span>
+                </div>
+            </div>
+            <div class="cert-paths" style="margin-top:var(--space-md);padding-top:var(--space-md);border-top:1px solid var(--border-color)">
+                <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">📂 使用路径</div>
+                <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">
+                    <div>证书: ${ct.cert_path}</div>
+                    <div>私钥: ${ct.key_path}</div>
+                </div>
+                <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:var(--space-md);margin-bottom:var(--space-sm)">📂 原始路径</div>
+                <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${acmePath}</div>
+            </div>
+            <div class="cert-warning" style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm)">
+                <div style="font-size:0.8rem;color:#f59e0b">⚠️ 为提升节点抗检测能力，请配置伪装站点</div>
+                <div style="margin-top:var(--space-xs);font-size:0.75rem">
+                    <a href="https://1panel.cn/docs/user_manual/websites/" target="_blank" style="color:var(--accent-primary);margin-right:var(--space-md)">📖 1Panel 教程</a>
+                    <a href="https://www.aapanel.com/new/FAQ_list.html" target="_blank" style="color:var(--accent-primary)">📖 aaPanel 教程</a>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    async deleteCertificate(domain) {
+        if (!confirm(`确定要删除证书 "${domain}" 吗？\n\n注意：删除后需要重新申请证书。`)) return;
+        try {
+            await API.deleteCertificate(domain);
+            this.showToast('证书已删除', 'success');
+            this.loadCertificates();
+        } catch (e) {
+            this.showToast(e.message, 'error');
         }
     }
 

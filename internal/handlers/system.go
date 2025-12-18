@@ -146,6 +146,7 @@ func ListCertificates(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
+		certService := services.NewCertificateService()
 		var certs []map[string]interface{}
 		for rows.Next() {
 			var id int64
@@ -163,9 +164,23 @@ func ListCertificates(db *sql.DB) gin.HandlerFunc {
 				"key_path":  keyPath,
 				"provider":  provider,
 			}
-			if expiresAt.Valid {
-				cert["expires_at"] = expiresAt.Time
+
+			// Get detailed info from certificate service
+			if info, err := certService.GetCertificateInfo(domain); err == nil {
+				if !info.ExpiresAt.IsZero() {
+					cert["expires_at"] = info.ExpiresAt
+				}
+				if !info.NextRenewAt.IsZero() {
+					cert["next_renew_at"] = info.NextRenewAt
+				}
+				cert["acme_path"] = info.AcmePath
+			} else {
+				// Fallback to database value
+				if expiresAt.Valid {
+					cert["expires_at"] = expiresAt.Time
+				}
 			}
+
 			if createdAt.Valid {
 				cert["created_at"] = createdAt.Time
 			}
@@ -173,6 +188,40 @@ func ListCertificates(db *sql.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"certificates": certs})
+	}
+}
+
+func DeleteCertificate(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		domain := c.Param("domain")
+		if domain == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "域名不能为空"})
+			return
+		}
+
+		// Check if certificate exists
+		var id int64
+		err := db.QueryRow("SELECT id FROM certificates WHERE domain = ?", domain).Scan(&id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "证书不存在"})
+			return
+		}
+
+		// Delete from system
+		certService := services.NewCertificateService()
+		if err := certService.DeleteCertificate(domain); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Delete from database
+		_, err = db.Exec("DELETE FROM certificates WHERE domain = ?", domain)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "删除数据库记录失败"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "证书已删除"})
 	}
 }
 
