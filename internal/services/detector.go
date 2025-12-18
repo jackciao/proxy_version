@@ -363,11 +363,22 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 		IPv6List: []string{},
 	}
 
+	// Collect all local IPs (including private IPs for source-based public IP detection)
+	var localIPv4s []string
+	var localIPv6s []string
+
 	// Get IPs from network interfaces
 	interfaces, err := net.Interfaces()
 	if err == nil {
 		for _, iface := range interfaces {
 			if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+
+			// Skip Docker/bridge interfaces
+			if strings.HasPrefix(iface.Name, "docker") ||
+				strings.HasPrefix(iface.Name, "br-") ||
+				strings.HasPrefix(iface.Name, "veth") {
 				continue
 			}
 
@@ -391,30 +402,75 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 
 				if ip4 := ip.To4(); ip4 != nil {
 					if !ip.IsPrivate() {
-						info.IPv4List = append(info.IPv4List, ip4.String())
+						// Direct public IP
+						if !contains(info.IPv4List, ip4.String()) {
+							info.IPv4List = append(info.IPv4List, ip4.String())
+						}
+					} else {
+						// Private IP - save for public IP detection via NAT
+						localIPv4s = append(localIPv4s, ip4.String())
 					}
 				} else if ip6 := ip.To16(); ip6 != nil {
 					if !ip.IsPrivate() && !ip.IsLinkLocalUnicast() {
-						info.IPv6List = append(info.IPv6List, ip6.String())
+						if !contains(info.IPv6List, ip6.String()) {
+							info.IPv6List = append(info.IPv6List, ip6.String())
+						}
+					} else if !ip.IsLinkLocalUnicast() {
+						localIPv6s = append(localIPv6s, ip6.String())
 					}
 				}
 			}
 		}
 	}
 
-	// Get public IPs via external API
-	info.PublicIP4 = d.getExternalIP("https://api4.ipify.org")
-	info.PublicIP6 = d.getExternalIP("https://api6.ipify.org")
-
-	// Add public IP to list if not already present
-	if info.PublicIP4 != "" && !contains(info.IPv4List, info.PublicIP4) {
-		info.IPv4List = append([]string{info.PublicIP4}, info.IPv4List...)
+	// For each local private IP, try to detect its corresponding public IP via NAT
+	// This handles cases like Oracle Cloud where private IPs map to different public IPs
+	for _, localIP := range localIPv4s {
+		publicIP := d.getExternalIPWithSource(localIP, "https://api4.ipify.org")
+		if publicIP != "" && !contains(info.IPv4List, publicIP) {
+			info.IPv4List = append(info.IPv4List, publicIP)
+		}
 	}
-	if info.PublicIP6 != "" && !contains(info.IPv6List, info.PublicIP6) {
-		info.IPv6List = append([]string{info.PublicIP6}, info.IPv6List...)
+
+	for _, localIP := range localIPv6s {
+		publicIP := d.getExternalIPWithSource(localIP, "https://api6.ipify.org")
+		if publicIP != "" && !contains(info.IPv6List, publicIP) {
+			info.IPv6List = append(info.IPv6List, publicIP)
+		}
+	}
+
+	// Fallback: Get default public IP if no IPs detected yet
+	if len(info.IPv4List) == 0 {
+		if publicIP := d.getExternalIP("https://api4.ipify.org"); publicIP != "" {
+			info.IPv4List = append(info.IPv4List, publicIP)
+		}
+	}
+	if len(info.IPv6List) == 0 {
+		if publicIP := d.getExternalIP("https://api6.ipify.org"); publicIP != "" {
+			info.IPv6List = append(info.IPv6List, publicIP)
+		}
+	}
+
+	// Set primary public IPs
+	if len(info.IPv4List) > 0 {
+		info.PublicIP4 = info.IPv4List[0]
+	}
+	if len(info.IPv6List) > 0 {
+		info.PublicIP6 = info.IPv6List[0]
 	}
 
 	return info
+}
+
+// getExternalIPWithSource uses curl with --interface to get public IP for a specific local IP
+func (d *DetectorService) getExternalIPWithSource(localIP, apiURL string) string {
+	// Use curl with --interface to bind to specific local IP
+	cmd := exec.Command("curl", "-s", "--max-time", "5", "--interface", localIP, apiURL)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func (d *DetectorService) getExternalIP(url string) string {
