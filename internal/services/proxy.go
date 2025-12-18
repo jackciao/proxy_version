@@ -553,7 +553,13 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		// Get listen IP from config, default to all interfaces
 		listenIP := "::"
 		if li, ok := config["listen"].(string); ok && li != "" {
-			listenIP = li
+			// Check if this is a public IP that needs to be mapped to local IP (NAT)
+			detector := NewDetectorService()
+			if localIP := detector.GetLocalIPForPublic(li); localIP != "" {
+				listenIP = localIP
+			} else {
+				listenIP = li
+			}
 		}
 		
 		inbound = map[string]interface{}{

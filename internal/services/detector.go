@@ -348,12 +348,20 @@ func (d *DetectorService) GetOpenRestyContainer() string {
 	return result.OpenRestyContainer
 }
 
+// IPMapping maps a local IP to its corresponding public IP (for NAT environments)
+type IPMapping struct {
+	LocalIP  string `json:"local_ip"`  // Local IP for binding (e.g., 10.0.0.238)
+	PublicIP string `json:"public_ip"` // Public IP for client config (e.g., 140.245.102.34)
+}
+
 // ServerIPInfo contains information about server IPs
 type ServerIPInfo struct {
-	IPv4List  []string `json:"ipv4_list"`
-	IPv6List  []string `json:"ipv6_list"`
-	PublicIP4 string   `json:"public_ipv4"`
-	PublicIP6 string   `json:"public_ipv6"`
+	IPv4List     []string    `json:"ipv4_list"`
+	IPv6List     []string    `json:"ipv6_list"`
+	PublicIP4    string      `json:"public_ipv4"`
+	PublicIP6    string      `json:"public_ipv6"`
+	IPv4Mappings []IPMapping `json:"ipv4_mappings"` // Local to public IP mappings
+	IPv6Mappings []IPMapping `json:"ipv6_mappings"`
 }
 
 // GetAllServerIPs returns all public IPs of the server
@@ -427,15 +435,29 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 	// This handles cases like Oracle Cloud where private IPs map to different public IPs
 	for _, localIP := range localIPv4s {
 		publicIP := d.getExternalIPWithSource(localIP, "https://api4.ipify.org")
-		if publicIP != "" && !contains(info.IPv4List, publicIP) {
-			info.IPv4List = append(info.IPv4List, publicIP)
+		if publicIP != "" {
+			// Always save the mapping for local->public IP lookup
+			info.IPv4Mappings = append(info.IPv4Mappings, IPMapping{
+				LocalIP:  localIP,
+				PublicIP: publicIP,
+			})
+			if !contains(info.IPv4List, publicIP) {
+				info.IPv4List = append(info.IPv4List, publicIP)
+			}
 		}
 	}
 
 	for _, localIP := range localIPv6s {
 		publicIP := d.getExternalIPWithSource(localIP, "https://api6.ipify.org")
-		if publicIP != "" && !contains(info.IPv6List, publicIP) {
-			info.IPv6List = append(info.IPv6List, publicIP)
+		if publicIP != "" {
+			// Always save the mapping for local->public IP lookup
+			info.IPv6Mappings = append(info.IPv6Mappings, IPMapping{
+				LocalIP:  localIP,
+				PublicIP: publicIP,
+			})
+			if !contains(info.IPv6List, publicIP) {
+				info.IPv6List = append(info.IPv6List, publicIP)
+			}
 		}
 	}
 
@@ -493,6 +515,43 @@ func contains(list []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// GetLocalIPForPublic returns the local IP that should be used for binding
+// when the user selects a public IP. This handles NAT environments where
+// the public IP is not directly available on the interface.
+func (d *DetectorService) GetLocalIPForPublic(publicIP string) string {
+	info := d.GetAllServerIPs()
+	
+	// Check IPv4 mappings
+	for _, mapping := range info.IPv4Mappings {
+		if mapping.PublicIP == publicIP {
+			return mapping.LocalIP
+		}
+	}
+	
+	// Check IPv6 mappings
+	for _, mapping := range info.IPv6Mappings {
+		if mapping.PublicIP == publicIP {
+			return mapping.LocalIP
+		}
+	}
+	
+	// If no mapping found, the IP might be directly available on interface
+	// Check if it exists in the public IP list (direct public IP)
+	for _, ip := range info.IPv4List {
+		if ip == publicIP {
+			return publicIP // Direct public IP, use as-is
+		}
+	}
+	for _, ip := range info.IPv6List {
+		if ip == publicIP {
+			return publicIP // Direct public IP, use as-is
+		}
+	}
+	
+	// Fallback: return empty to use "::" (all interfaces)
+	return ""
 }
 
 // PortCheckResult contains port availability info
