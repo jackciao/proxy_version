@@ -115,19 +115,51 @@ manage_users() {
 }
 
 reinstall() {
-    echo -e "\n${YELLOW}⚠️ 将停止并重新安装容器${NC}"
-    read -p "继续? (y/N): " cf
+    echo -e "\n${YELLOW}⚠️  将停止并重新安装容器${NC}"
+    echo -e "${CYAN}提示：如果使用预构建镜像，更新将非常快速（约30秒）${NC}\n"
+    
+    # 检测是否有预构建配置文件
+    local USE_PREBUILT=false
+    if [[ -f "$INSTALL_DIR/docker-compose.prebuilt.yml" ]]; then
+        echo -e "${GREEN}检测到预构建镜像配置${NC}"
+        read -p "使用预构建镜像（推荐，快速）? (Y/n): " use_prebuilt
+        if [[ ! "$use_prebuilt" =~ ^[Nn]$ ]]; then
+            USE_PREBUILT=true
+        fi
+    fi
+    
+    read -p "确认继续? (y/N): " cf
     if [[ "$cf" =~ ^[Yy]$ ]]; then
         cd "$INSTALL_DIR"
         $COMPOSE_CMD down 2>/dev/null || true
-        $COMPOSE_CMD up -d --build
+        
+        if [ "$USE_PREBUILT" = true ]; then
+            echo -e "${GREEN}使用预构建镜像（快速模式）${NC}"
+            docker pull jackciao/proxy_version:latest
+            $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
+        else
+            echo -e "${YELLOW}使用本地构建模式${NC}"
+            $COMPOSE_CMD up -d --build
+        fi
+        
         echo -e "\n${GREEN}✓ 重新安装完成！${NC}\n"
     fi
 }
 
 update_system() {
     echo -e "\n${CYAN}🔄 更新系统${NC}"
-    echo -e "${YELLOW}将拉取最新代码、删除旧镜像并重建容器${NC}"
+    echo -e "${YELLOW}将拉取最新代码并重建容器${NC}\n"
+    
+    # 检测是否有预构建配置文件
+    local USE_PREBUILT=false
+    if [[ -f "$INSTALL_DIR/docker-compose.prebuilt.yml" ]]; then
+        echo -e "${GREEN}检测到预构建镜像配置${NC}"
+        read -p "使用预构建镜像（推荐，快速更新）? (Y/n): " use_prebuilt
+        if [[ ! "$use_prebuilt" =~ ^[Nn]$ ]]; then
+            USE_PREBUILT=true
+        fi
+    fi
+    
     read -p "确定要更新到最新版本? (y/N): " cf
     if [[ "$cf" =~ ^[Yy]$ ]]; then
         cd "$INSTALL_DIR"
@@ -143,14 +175,44 @@ update_system() {
         echo -e "${YELLOW}[2/4] 停止现有容器...${NC}"
         $COMPOSE_CMD down 2>/dev/null || true
         
-        # 删除旧镜像
-        echo -e "${YELLOW}[3/4] 删除旧镜像...${NC}"
-        $DOCKER_CMD rmi proxy_version-proxy_version 2>/dev/null || true
-        $DOCKER_CMD rmi proxy_version_proxy_version 2>/dev/null || true
-        
-        # 重新构建并启动
-        echo -e "${YELLOW}[4/4] 构建新镜像并启动...${NC}"
-        $COMPOSE_CMD up -d --build
+        if [ "$USE_PREBUILT" = true ]; then
+            # 使用预构建镜像（快速模式）
+            echo -e "${YELLOW}[3/4] 拉取最新镜像...${NC}"
+            docker pull jackciao/proxy_version:latest
+            
+            echo -e "${YELLOW}[4/4] 启动容器...${NC}"
+            $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
+        else
+            # 本地构建模式（检测低内存环境）
+            echo -e "${YELLOW}[3/4] 删除旧镜像...${NC}"
+            $DOCKER_CMD rmi proxy_version-proxy_version 2>/dev/null || true
+            $DOCKER_CMD rmi proxy_version_proxy_version 2>/dev/null || true
+            
+            # 检测内存大小，低内存环境启用 swap
+            if command -v free &>/dev/null; then
+                MEM_MB=$(free -m | awk '/^Mem:/{print $2}')
+                if [ "$MEM_MB" -lt 1500 ] 2>/dev/null; then
+                    echo -e "${YELLOW}⚠️  检测到低内存环境 (${MEM_MB}MB)${NC}"
+                    echo -e "${CYAN}正在配置 swap 以加速构建...${NC}"
+                    
+                    # 创建 2GB swap（如果不存在）
+                    if ! swapon --show 2>/dev/null | grep -q '/swapfile'; then
+                        if command -v fallocate &>/dev/null; then
+                            fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null
+                        else
+                            dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null
+                        fi
+                        chmod 600 /swapfile
+                        mkswap /swapfile 2>/dev/null
+                        swapon /swapfile 2>/dev/null
+                        echo -e "${GREEN}Swap 已激活${NC}"
+                    fi
+                fi
+            fi
+            
+            echo -e "${YELLOW}[4/4] 构建新镜像并启动...${NC}"
+            $COMPOSE_CMD up -d --build
+        fi
         
         echo -e "\n${GREEN}✓ 更新完成！${NC}\n"
     fi
