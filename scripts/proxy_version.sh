@@ -1,7 +1,12 @@
 #!/bin/bash
 set -e
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; PURPLE='\033[0;35m'; NC='\033[0m'
-INSTALL_DIR="/opt/proxy_version"; DATA_DIR="${INSTALL_DIR}/data"; DB_PATH="${DATA_DIR}/proxy_version.db"
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+INSTALL_DIR="$( dirname "$SCRIPT_DIR" )"
+DATA_DIR="${INSTALL_DIR}/data"
+DB_PATH="${DATA_DIR}/proxy_version.db"
 API_URL="http://127.0.0.1:8080/api"
 
 # Determine if sudo is needed for docker
@@ -20,7 +25,16 @@ print_banner() { echo -e "${PURPLE}\n╔═════════════�
 
 check_container() { $DOCKER_CMD ps --format '{{.Names}}' 2>/dev/null | grep -q "^proxy_version$"; }
 
-ensure_sqlite3() { command -v sqlite3 &>/dev/null || { apt update && apt install -y sqlite3 2>/dev/null || yum install -y sqlite 2>/dev/null; }; }
+ensure_sqlite3() { 
+    if ! command -v sqlite3 &>/dev/null; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            echo -e "${RED}请先安装 sqlite3: brew install sqlite3${NC}"
+            return 1
+        else
+            apt update && apt install -y sqlite3 2>/dev/null || yum install -y sqlite 2>/dev/null
+        fi
+    fi
+}
 
 create_user() {
     echo -e "\n${CYAN}━━━ 创建用户 ━━━${NC}\n"

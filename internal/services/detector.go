@@ -390,6 +390,18 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 				continue
 			}
 
+			// CRITICAL FIX: Skip WARP/WireGuard/VPN interfaces
+			// This prevents WARP assigned IPs (e.g., 104.28.222.43) from replacing
+			// the user's actual bound IPs (e.g., 161.118.197.188)
+			ifaceLower := strings.ToLower(iface.Name)
+			if strings.HasPrefix(ifaceLower, "wg") ||
+				strings.Contains(ifaceLower, "warp") ||
+				strings.Contains(ifaceLower, "cloudflare") ||
+				strings.HasPrefix(iface.Name, "tun") ||
+				strings.HasPrefix(iface.Name, "tap") {
+				continue
+			}
+
 			addrs, err := iface.Addrs()
 			if err != nil {
 				continue

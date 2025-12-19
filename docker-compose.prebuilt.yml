@@ -1,8 +1,11 @@
 services:
   proxy_version:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # 使用预构建镜像而不是本地构建
+    image: jackciao/proxy_version:latest
+    # 如果预构建镜像不可用，则回退到本地构建
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: proxy_version
     restart: unless-stopped
     ports:
