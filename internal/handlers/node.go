@@ -308,17 +308,21 @@ func GetNodeShare(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Get server IP
-		serverIP := getServerIP()
-		if domain.Valid && domain.String != "" {
-			serverIP = domain.String
-		}
-
-		// Parse config
+		// Parse config first to check for listen IP binding
 		var configMap map[string]interface{}
 		if config.Valid {
 			json.Unmarshal([]byte(config.String), &configMap)
 		}
+
+		// Determine server IP:
+		// 1. If domain is set, use domain (for TLS protocols)
+		// 2. If listen IP is bound, let GenerateShareURL handle it (pass empty)
+		// 3. Otherwise, auto-detect server IP
+		serverIP := ""
+		if domain.Valid && domain.String != "" {
+			serverIP = domain.String
+		}
+		// Don't call getServerIP() here - let GenerateShareURL determine from listen or auto-detect
 
 		// Generate share URL
 		proxyService := services.NewProxyService()

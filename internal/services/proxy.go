@@ -1080,10 +1080,11 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 		listenIP = li
 	}
 	
-	// If bound to specific IP, translate private IP to public IP if needed
+	// If bound to specific IP, determine the public IP for sharing
 	if listenIP != "" {
-		// Check if this is a private IP that maps to a public IP
-		publicIP := listenIP
+		publicIP := ""
+		
+		// Case 1: Check if listenIP is a private IP that maps to public IP
 		for _, mapping := range serverInfo.IPv4Mappings {
 			if mapping.LocalIP == listenIP {
 				publicIP = mapping.PublicIP
@@ -1095,6 +1096,44 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 				publicIP = mapping.PublicIP
 				break
 			}
+		}
+		
+		// Case 2: Check if listenIP is already a public IP (user selected public IP directly)
+		if publicIP == "" {
+			// Check if this IP exists in public IP list
+			for _, ip := range serverInfo.IPv4List {
+				if ip == listenIP {
+					publicIP = listenIP
+					break
+				}
+			}
+			for _, ip := range serverInfo.IPv6List {
+				if ip == listenIP {
+					publicIP = listenIP
+					break
+				}
+			}
+		}
+		
+		// Case 3: Check if listenIP is a public IP that appears in mappings (reverse lookup)
+		if publicIP == "" {
+			for _, mapping := range serverInfo.IPv4Mappings {
+				if mapping.PublicIP == listenIP {
+					publicIP = listenIP
+					break
+				}
+			}
+			for _, mapping := range serverInfo.IPv6Mappings {
+				if mapping.PublicIP == listenIP {
+					publicIP = listenIP
+					break
+				}
+			}
+		}
+		
+		// Fallback: use listenIP as-is
+		if publicIP == "" {
+			publicIP = listenIP
 		}
 		
 		if strings.Contains(publicIP, ":") {
@@ -1178,8 +1217,16 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 	}
 	info.QRCode = info.URL
 	
-	// Generate client JSON config with both IPs
-	clientConfig := s.generateClientConfig(primaryIP, port, config)
+	// Generate client JSON config with correct server IP
+	// Use the bound IP (from info.ServerIPv4/IPv6) not the old primaryIP
+	clientServerIP := info.ServerIPv4
+	if clientServerIP == "" {
+		clientServerIP = info.ServerIPv6
+	}
+	if clientServerIP == "" {
+		clientServerIP = primaryIP
+	}
+	clientConfig := s.generateClientConfig(clientServerIP, port, config)
 	clientConfig["server_ipv4"] = info.ServerIPv4
 	clientConfig["server_ipv6"] = info.ServerIPv6
 	if jsonBytes, err := json.MarshalIndent(clientConfig, "", "  "); err == nil {
