@@ -437,6 +437,9 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warp
 	
 	configData, _ := json.MarshalIndent(singboxConfig, "", "  ")
 	
+	// Copy TLS certificates from container to host (sing-box runs on host, needs certs on host)
+	s.copyCertsToHost()
+	
 	// Use nsenter to write config file to host filesystem
 	configDir := "/etc/v2ray-agent/nodes"
 	configPath := filepath.Join(configDir, fmt.Sprintf("node_%d.json", nodeID))
@@ -508,6 +511,41 @@ func (s *ProxyService) runOnHost(command string, args ...string) (string, error)
 		return string(output), fmt.Errorf("%s: %s", err, string(output))
 	}
 	return string(output), nil
+}
+
+// copyCertsToHost copies TLS certificates from container to host filesystem
+// This is needed because sing-box runs on host and needs access to certs
+func (s *ProxyService) copyCertsToHost() {
+	certDir := "/etc/v2ray-agent/tls"
+	
+	// Create cert directory on host
+	s.runOnHost("bash", "-c", fmt.Sprintf("mkdir -p %s", certDir))
+	
+	// Find all certificate files in container and copy to host
+	entries, err := os.ReadDir(certDir)
+	if err != nil {
+		return
+	}
+	
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		
+		filename := entry.Name()
+		srcPath := filepath.Join(certDir, filename)
+		
+		// Read cert content from container
+		content, err := os.ReadFile(srcPath)
+		if err != nil {
+			continue
+		}
+		
+		// Write to host using nsenter with base64 encoding to handle special chars
+		encodedContent := base64.StdEncoding.EncodeToString(content)
+		writeScript := fmt.Sprintf("echo '%s' | base64 -d > %s", encodedContent, srcPath)
+		s.runOnHost("bash", "-c", writeScript)
+	}
 }
 
 // generateSingBoxConfig generates a sing-box compatible configuration
@@ -892,9 +930,30 @@ func generatePassword() string {
 }
 
 func generateX25519Keys() (string, string) {
-	// Use sing-box to generate a proper Reality keypair
-	singboxPaths := []string{"/etc/v2ray-agent/sing-box/sing-box", "/usr/local/bin/sing-box", "/usr/bin/sing-box"}
+	// Use nsenter to access sing-box on HOST system (since sing-box is installed on host, not in container)
+	singboxPaths := []string{"/usr/local/bin/sing-box", "/etc/v2ray-agent/sing-box/sing-box", "/usr/bin/sing-box"}
 	
+	for _, path := range singboxPaths {
+		// Use nsenter to check if sing-box exists on host and generate keypair
+		cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", path, "generate", "reality-keypair")
+		output, err := cmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			var privateKey, publicKey string
+			for _, line := range lines {
+				if strings.HasPrefix(line, "PrivateKey:") {
+					privateKey = strings.TrimSpace(strings.TrimPrefix(line, "PrivateKey:"))
+				} else if strings.HasPrefix(line, "PublicKey:") {
+					publicKey = strings.TrimSpace(strings.TrimPrefix(line, "PublicKey:"))
+				}
+			}
+			if privateKey != "" && publicKey != "" {
+				return publicKey, privateKey
+			}
+		}
+	}
+	
+	// Fallback: try without nsenter (for development/testing on host)
 	for _, path := range singboxPaths {
 		if _, err := os.Stat(path); err == nil {
 			output, err := exec.Command(path, "generate", "reality-keypair").Output()
@@ -915,7 +974,8 @@ func generateX25519Keys() (string, string) {
 		}
 	}
 	
-	// Fallback: generate random keys (not recommended, may not work)
+	// Last resort fallback: generate random keys (will NOT work for Reality!)
+	// This should never happen if sing-box is properly installed
 	priv := make([]byte, 32)
 	rand.Read(priv)
 	pub := make([]byte, 32)
