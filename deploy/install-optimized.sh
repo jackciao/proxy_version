@@ -110,14 +110,14 @@ echo -e "${CYAN}设置命令行工具...${NC}"
 chmod +x "${INSTALL_DIR}/scripts/proxy_version.sh"
 ln -sf "${INSTALL_DIR}/scripts/proxy_version.sh" /usr/local/bin/proxy_version
 
-# 获取真实公网 IP（避免 WARP IP）
+# 获取真实公网 IP（避免 WARP IP，优先 IPv4）
 get_real_public_ip() {
-    local public_ip=""
+    local public_ipv4=""
+    local public_ipv6=""
     
-    # 方法 1: 从网络接口直接读取
+    # 方法 1: 从网络接口读取 IPv4
     if command -v ip &>/dev/null; then
-        # 使用 ip 命令（Linux）
-        public_ip=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | \
+        public_ipv4=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | \
             grep -v '^127\.' | \
             grep -v '^10\.' | \
             grep -v '^192\.168\.' | \
@@ -126,33 +126,45 @@ get_real_public_ip() {
             head -n 1)
     fi
     
-    # 方法 2: 使用 hostname -I
-    if [ -z "$public_ip" ] && command -v hostname &>/dev/null; then
-        public_ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
+    # 方法 2: hostname -I 获取 IPv4（回退）
+    if [ -z "$public_ipv4" ] && command -v hostname &>/dev/null; then
+        public_ipv4=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
+            grep -E '^\d+(\.\d+){3}$' | \
             grep -v '^127\.' | \
             grep -v '^10\.' | \
             grep -v '^192\.168\.' | \
             grep -Ev '^172\.(1[6-9]|2[0-9]|3[01])\.' | \
             grep -v '^104\.' | \
-            grep -v '^$' | \
             head -n 1)
     fi
     
-    # 方法 3: 回退到外部 API（通过主网卡）
-    if [ -z "$public_ip" ]; then
-        # 尝试通过主网卡接口查询
+    # 方法 3: 获取 IPv6（仅当没有 IPv4 时）
+    if [ -z "$public_ipv4" ] && command -v ip &>/dev/null; then
+        public_ipv6=$(ip -6 addr show 2>/dev/null | grep -oP '(?<=inet6\s)[0-9a-f:]+' | \
+            grep -v '^::1' | \
+            grep -v '^fe80:' | \
+            grep -v '^fd' | \
+            grep -v '^fc' | \
+            grep -v '^2606:4700:' | \
+            head -n 1)
+    fi
+    
+    # 方法 4: 通过主网卡查询外部 API（最后回退）
+    if [ -z "$public_ipv4" ] && [ -z "$public_ipv6" ]; then
         local main_iface=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -n 1)
         if [ -n "$main_iface" ] && [ "$main_iface" != "wg0" ] && [[ ! "$main_iface" =~ ^tun ]] && [[ ! "$main_iface" =~ ^tap ]]; then
-            public_ip=$(curl -s --interface "$main_iface" --connect-timeout 3 ifconfig.me 2>/dev/null || echo "")
+            public_ipv4=$(curl -s --interface "$main_iface" --connect-timeout 3 -4 ifconfig.me 2>/dev/null || echo "")
         fi
     fi
     
-    # 最后的回退
-    if [ -z "$public_ip" ]; then
-        public_ip="服务器IP"
+    # 优先返回 IPv4，否则返回 IPv6
+    if [ -n "$public_ipv4" ]; then
+        echo "$public_ipv4"
+    elif [ -n "$public_ipv6" ]; then
+        echo "[$public_ipv6]"  # IPv6 用方括号包裹
+    else
+        echo "服务器IP"
     fi
-    
-    echo "$public_ip"
 }
 
 # 完成
@@ -170,6 +182,12 @@ ${YELLOW}💡 提示：${NC}
 - 如需本地构建，运行: curl -fsSL ... | bash -s -- --build
 "
 
-# 自动运行 CLI
+# 自动运行 CLI（通过 /dev/tty 保持交互）
 sleep 2
-exec bash -c '/usr/local/bin/proxy_version'
+if [ -t 0 ]; then
+    # 直接在终端运行，正常启动
+    exec /usr/local/bin/proxy_version
+else
+    # 通过管道运行（curl | bash），需要重定向到终端
+    /usr/local/bin/proxy_version </dev/tty
+fi
