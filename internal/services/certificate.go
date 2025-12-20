@@ -29,18 +29,24 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 		}
 	}
 
-	// Set default email if not provided - MUST be a valid email, not example.com
+	// Validate email - Let's Encrypt requires valid contact email for account registration
 	if email == "" {
 		return "", "", fmt.Errorf("请提供有效的邮箱地址用于证书申请")
 	}
-
-	// Validate email format (basic check)
 	if !strings.Contains(email, "@") || strings.Contains(email, "example.com") {
 		return "", "", fmt.Errorf("请提供有效的邮箱地址，不能使用示例邮箱")
 	}
 
-	// Update acme.sh account email to avoid invalidContact error
-	s.runAcme("--update-account", "--email", email)
+	// Clean old invalid account and register with valid email
+	// This fixes "invalidContact" error when acme.sh was installed with invalid email
+	s.cleanOldAccount()
+	
+	// Register account with user's valid email
+	registerOutput, _ := s.runAcme("--register-account", "-m", email, "--force")
+	if strings.Contains(registerOutput, "error") && !strings.Contains(registerOutput, "already") {
+		// Try update if register fails
+		s.runAcme("--update-account", "--email", email)
+	}
 
 	// Set CA based on provider
 	switch provider {
@@ -233,6 +239,33 @@ func (s *CertificateService) cleanSavedCredentials() {
 		newLines = append(newLines, line)
 	}
 
+	os.WriteFile(confPath, []byte(strings.Join(newLines, "\n")), 0644)
+}
+
+// cleanOldAccount removes old ACME account with invalid email to allow fresh registration
+func (s *CertificateService) cleanOldAccount() {
+	// Remove ca directory which contains account info with invalid email
+	caDir := "/root/.acme.sh/ca"
+	os.RemoveAll(caDir)
+	
+	// Also clean the account email from account.conf
+	confPath := "/root/.acme.sh/account.conf"
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var newLines []string
+	for _, line := range lines {
+		// Skip account email/key entries that may have invalid email
+		if strings.HasPrefix(line, "ACCOUNT_EMAIL") || 
+		   strings.HasPrefix(line, "ACCOUNT_THUMBPRINT") ||
+		   strings.Contains(line, "example.com") {
+			continue
+		}
+		newLines = append(newLines, line)
+	}
 	os.WriteFile(confPath, []byte(strings.Join(newLines, "\n")), 0644)
 }
 

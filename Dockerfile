@@ -28,8 +28,8 @@ RUN apk add --no-cache \
 # Create symlink for bash compatibility (acme.sh uses #!/usr/bin/bash)
 RUN ln -sf /bin/bash /usr/bin/bash
 
-# Install acme.sh
-RUN curl https://get.acme.sh | bash -s email=admin@example.com && \
+# Install acme.sh without registering account (will register on first use with valid email)
+RUN curl https://get.acme.sh | bash -s -- --install-online && \
     /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
 
 RUN mkdir -p /app/data /etc/v2ray-agent/tls
