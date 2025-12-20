@@ -499,8 +499,9 @@
                             <input type="text" id="cert-domain" placeholder="例: example.com" required>
                         </div>
                         <div class="form-group">
-                            <label for="cert-email">邮箱 (可选，用于到期提醒)</label>
-                            <input type="email" id="cert-email" placeholder="用于接收证书到期通知">
+                            <label for="cert-email">邮箱 <span style="color:var(--accent-primary)">*</span></label>
+                            <input type="email" id="cert-email" placeholder="用于证书注册和到期通知" required>
+                            <small class="form-hint">Let's Encrypt 要求提供有效邮箱地址</small>
                         </div>
                         <div class="form-group">
                             <label for="cert-provider">证书颁发机构</label>

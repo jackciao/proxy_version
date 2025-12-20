@@ -1070,36 +1070,56 @@ func getExternalIPv6() string {
 func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config map[string]interface{}) (ShareInfo, error) {
 	info := ShareInfo{Remarks: nodeName}
 	
+	// Use DetectorService for proper IP detection (handles container environment)
+	detector := NewDetectorService()
+	serverInfo := detector.GetAllServerIPs()
+	
 	// Check if node is bound to a specific IP (listen parameter)
 	listenIP := ""
 	if li, ok := config["listen"].(string); ok && li != "" && li != "::" && li != "0.0.0.0" {
 		listenIP = li
 	}
 	
-	// If bound to specific IP, only use that IP
+	// If bound to specific IP, translate private IP to public IP if needed
 	if listenIP != "" {
-		if strings.Contains(listenIP, ":") {
+		// Check if this is a private IP that maps to a public IP
+		publicIP := listenIP
+		for _, mapping := range serverInfo.IPv4Mappings {
+			if mapping.LocalIP == listenIP {
+				publicIP = mapping.PublicIP
+				break
+			}
+		}
+		for _, mapping := range serverInfo.IPv6Mappings {
+			if mapping.LocalIP == listenIP {
+				publicIP = mapping.PublicIP
+				break
+			}
+		}
+		
+		if strings.Contains(publicIP, ":") {
 			// IPv6 only
-			info.ServerIPv6 = listenIP
+			info.ServerIPv6 = publicIP
 			info.ServerIPv4 = ""
 		} else {
 			// IPv4 only
-			info.ServerIPv4 = listenIP
+			info.ServerIPv4 = publicIP
 			info.ServerIPv6 = ""
 		}
 	} else {
-		// Auto-detect server IPs for dual-stack support
-		ipv4, ipv6 := getServerIPs()
-		info.ServerIPv4 = ipv4
-		info.ServerIPv6 = ipv6
+		// No specific IP bound - use auto-detected IPs from DetectorService
+		if len(serverInfo.IPv4List) > 0 {
+			info.ServerIPv4 = serverInfo.IPv4List[0]
+		}
+		if len(serverInfo.IPv6List) > 0 {
+			info.ServerIPv6 = serverInfo.IPv6List[0]
+		}
 	}
 	
-	// Use provided serverIP or fallback to detected IPs
+	// Determine primary IP for URL generation
 	primaryIP := serverIP
 	if primaryIP == "" {
-		if listenIP != "" {
-			primaryIP = listenIP
-		} else if info.ServerIPv4 != "" {
+		if info.ServerIPv4 != "" {
 			primaryIP = info.ServerIPv4
 		} else if info.ServerIPv6 != "" {
 			primaryIP = info.ServerIPv6
