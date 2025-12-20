@@ -29,10 +29,18 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 		}
 	}
 
-	// Set default email if not provided
+	// Set default email if not provided - MUST be a valid email, not example.com
 	if email == "" {
-		email = "admin@" + domain
+		return "", "", fmt.Errorf("请提供有效的邮箱地址用于证书申请")
 	}
+
+	// Validate email format (basic check)
+	if !strings.Contains(email, "@") || strings.Contains(email, "example.com") {
+		return "", "", fmt.Errorf("请提供有效的邮箱地址，不能使用示例邮箱")
+	}
+
+	// Update acme.sh account email to avoid invalidContact error
+	s.runAcme("--update-account", "--email", email)
 
 	// Set CA based on provider
 	switch provider {

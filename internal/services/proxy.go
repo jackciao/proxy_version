@@ -51,12 +51,18 @@ type CoreStatus struct {
 func (s *ProxyService) GetCoreStatus() CoreStatus {
 	status := CoreStatus{}
 	
-	// Check sing-box
+	// Check sing-box on HOST using nsenter (since we run in container but sing-box is on host)
 	singboxPaths := []string{"/usr/local/bin/sing-box", "/etc/v2ray-agent/sing-box/sing-box", "/usr/bin/sing-box"}
+	
 	for _, path := range singboxPaths {
-		if _, err := os.Stat(path); err == nil {
+		// Use nsenter to check if file exists on host
+		cmd := exec.Command("nsenter", "-t", "1", "-m", "test", "-f", path)
+		if err := cmd.Run(); err == nil {
 			status.SingBoxInstalled = true
-			if output, err := exec.Command(path, "version").Output(); err == nil {
+			
+			// Get version using nsenter
+			versionCmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", path, "version")
+			if output, err := versionCmd.Output(); err == nil {
 				lines := strings.Split(string(output), "\n")
 				for _, line := range lines {
 					if strings.Contains(line, "sing-box version") {
