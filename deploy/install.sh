@@ -61,8 +61,53 @@ echo -e "${CYAN}[6/6] 设置命令行工具...${NC}"
 chmod +x "${INSTALL_DIR}/scripts/proxy_version.sh"
 ln -sf "${INSTALL_DIR}/scripts/proxy_version.sh" /usr/local/bin/proxy_version
 
+# 获取真实公网 IP（避免 WARP IP）
+get_real_public_ip() {
+    local public_ip=""
+    
+    # 方法 1: 从网络接口直接读取
+    if command -v ip &>/dev/null; then
+        # 使用 ip 命令（Linux）
+        public_ip=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | \
+            grep -v '^127\.' | \
+            grep -v '^10\.' | \
+            grep -v '^192\.168\.' | \
+            grep -Ev '^172\.(1[6-9]|2[0-9]|3[01])\.' | \
+            grep -v '^104\.' | \
+            head -n 1)
+    fi
+    
+    # 方法 2: 使用 hostname -I
+    if [ -z "$public_ip" ] && command -v hostname &>/dev/null; then
+        public_ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
+            grep -v '^127\.' | \
+            grep -v '^10\.' | \
+            grep -v '^192\.168\.' | \
+            grep -Ev '^172\.(1[6-9]|2[0-9]|3[01])\.' | \
+            grep -v '^104\.' | \
+            grep -v '^$' | \
+            head -n 1)
+    fi
+    
+    # 方法 3: 回退到外部 API（通过主网卡）
+    if [ -z "$public_ip" ]; then
+        # 尝试通过主网卡接口查询
+        local main_iface=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -n 1)
+        if [ -n "$main_iface" ] && [ "$main_iface" != "wg0" ] && [[ ! "$main_iface" =~ ^tun ]] && [[ ! "$main_iface" =~ ^tap ]]; then
+            public_ip=$(curl -s --interface "$main_iface" --connect-timeout 3 ifconfig.me 2>/dev/null || echo "")
+        fi
+    fi
+    
+    # 最后的回退
+    if [ -z "$public_ip" ]; then
+        public_ip="服务器IP"
+    fi
+    
+    echo "$public_ip"
+}
+
 # 完成
-PUBLIC_IP=$(curl -s --connect-timeout 3 ip.sb || echo "服务器IP")
+PUBLIC_IP=$(get_real_public_ip)
 echo -e "
 ${GREEN}╔═══════════════════════════════════════════════════════╗
 ║              ✅ 安装完成！                             ║
