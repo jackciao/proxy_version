@@ -375,68 +375,115 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 	var localIPv4s []string
 	var localIPv6s []string
 
-	// Get IPs from network interfaces
-	interfaces, err := net.Interfaces()
-	if err == nil {
-		for _, iface := range interfaces {
-			if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+	// Try to get host interfaces via nsenter (for container environment)
+	// This is necessary because net.Interfaces() in container only sees container interfaces
+	hostIPs := d.getHostInterfaceIPs()
+	if len(hostIPs) > 0 {
+		for _, ipInfo := range hostIPs {
+			ip := net.ParseIP(ipInfo.IP)
+			if ip == nil {
+				continue
+			}
+
+			// Skip WARP/VPN interface IPs
+			ifaceLower := strings.ToLower(ipInfo.Iface)
+			if strings.HasPrefix(ifaceLower, "wg") ||
+				strings.Contains(ifaceLower, "warp") ||
+				strings.Contains(ifaceLower, "cloudflare") ||
+				strings.HasPrefix(ipInfo.Iface, "tun") ||
+				strings.HasPrefix(ipInfo.Iface, "tap") {
 				continue
 			}
 
 			// Skip Docker/bridge interfaces
-			if strings.HasPrefix(iface.Name, "docker") ||
-				strings.HasPrefix(iface.Name, "br-") ||
-				strings.HasPrefix(iface.Name, "veth") {
+			if strings.HasPrefix(ipInfo.Iface, "docker") ||
+				strings.HasPrefix(ipInfo.Iface, "br-") ||
+				strings.HasPrefix(ipInfo.Iface, "veth") {
 				continue
 			}
 
-			// CRITICAL FIX: Skip WARP/WireGuard/VPN interfaces
-			// This prevents WARP assigned IPs (e.g., 104.28.222.43) from replacing
-			// the user's actual bound IPs (e.g., 161.118.197.188)
-			ifaceLower := strings.ToLower(iface.Name)
-			if strings.HasPrefix(ifaceLower, "wg") ||
-				strings.Contains(ifaceLower, "warp") ||
-				strings.Contains(ifaceLower, "cloudflare") ||
-				strings.HasPrefix(iface.Name, "tun") ||
-				strings.HasPrefix(iface.Name, "tap") {
-				continue
-			}
-
-			addrs, err := iface.Addrs()
-			if err != nil {
-				continue
-			}
-
-			for _, addr := range addrs {
-				var ip net.IP
-				switch v := addr.(type) {
-				case *net.IPNet:
-					ip = v.IP
-				case *net.IPAddr:
-					ip = v.IP
+			if ip4 := ip.To4(); ip4 != nil {
+				if !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+					// Direct public IP
+					if !contains(info.IPv4List, ip4.String()) {
+						info.IPv4List = append(info.IPv4List, ip4.String())
+					}
+				} else if ip.IsPrivate() {
+					// Private IP - save for public IP detection via NAT
+					localIPv4s = append(localIPv4s, ip4.String())
 				}
+			} else if ip.To16() != nil && ip.To4() == nil {
+				if !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+					if !contains(info.IPv6List, ip.String()) {
+						info.IPv6List = append(info.IPv6List, ip.String())
+					}
+				} else if !ip.IsLinkLocalUnicast() && !ip.IsLoopback() {
+					localIPv6s = append(localIPv6s, ip.String())
+				}
+			}
+		}
+	}
 
-				if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+	// Fallback: Get IPs from container network interfaces (may work if network_mode: host)
+	if len(localIPv4s) == 0 && len(info.IPv4List) == 0 {
+		interfaces, err := net.Interfaces()
+		if err == nil {
+			for _, iface := range interfaces {
+				if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
 					continue
 				}
 
-				if ip4 := ip.To4(); ip4 != nil {
-					if !ip.IsPrivate() {
-						// Direct public IP
-						if !contains(info.IPv4List, ip4.String()) {
-							info.IPv4List = append(info.IPv4List, ip4.String())
-						}
-					} else {
-						// Private IP - save for public IP detection via NAT
-						localIPv4s = append(localIPv4s, ip4.String())
+				// Skip Docker/bridge interfaces
+				if strings.HasPrefix(iface.Name, "docker") ||
+					strings.HasPrefix(iface.Name, "br-") ||
+					strings.HasPrefix(iface.Name, "veth") {
+					continue
+				}
+
+				// Skip WARP/WireGuard/VPN interfaces
+				ifaceLower := strings.ToLower(iface.Name)
+				if strings.HasPrefix(ifaceLower, "wg") ||
+					strings.Contains(ifaceLower, "warp") ||
+					strings.Contains(ifaceLower, "cloudflare") ||
+					strings.HasPrefix(iface.Name, "tun") ||
+					strings.HasPrefix(iface.Name, "tap") {
+					continue
+				}
+
+				addrs, err := iface.Addrs()
+				if err != nil {
+					continue
+				}
+
+				for _, addr := range addrs {
+					var ip net.IP
+					switch v := addr.(type) {
+					case *net.IPNet:
+						ip = v.IP
+					case *net.IPAddr:
+						ip = v.IP
 					}
-				} else if ip6 := ip.To16(); ip6 != nil {
-					if !ip.IsPrivate() && !ip.IsLinkLocalUnicast() {
-						if !contains(info.IPv6List, ip6.String()) {
-							info.IPv6List = append(info.IPv6List, ip6.String())
+
+					if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+						continue
+					}
+
+					if ip4 := ip.To4(); ip4 != nil {
+						if !ip.IsPrivate() {
+							if !contains(info.IPv4List, ip4.String()) {
+								info.IPv4List = append(info.IPv4List, ip4.String())
+							}
+						} else {
+							localIPv4s = append(localIPv4s, ip4.String())
 						}
-					} else if !ip.IsLinkLocalUnicast() {
-						localIPv6s = append(localIPv6s, ip6.String())
+					} else if ip6 := ip.To16(); ip6 != nil {
+						if !ip.IsPrivate() && !ip.IsLinkLocalUnicast() {
+							if !contains(info.IPv6List, ip6.String()) {
+								info.IPv6List = append(info.IPv6List, ip6.String())
+							}
+						} else if !ip.IsLinkLocalUnicast() {
+							localIPv6s = append(localIPv6s, ip6.String())
+						}
 					}
 				}
 			}
@@ -494,6 +541,69 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 	}
 
 	return info
+}
+
+// hostIPInfo represents an IP address on a host interface
+type hostIPInfo struct {
+	Iface string
+	IP    string
+}
+
+// getHostInterfaceIPs uses nsenter to get IPs from host network interfaces
+// Returns empty slice if nsenter fails (fallback to container interfaces)
+func (d *DetectorService) getHostInterfaceIPs() []hostIPInfo {
+	var result []hostIPInfo
+
+	// Use nsenter to execute 'ip -o addr show' on host
+	// -o gives one line per address, easier to parse
+	cmd := exec.Command("nsenter", "--net=/host/proc/1/ns/net", "ip", "-o", "addr", "show")
+	output, err := cmd.Output()
+	if err != nil {
+		// nsenter failed, return empty to trigger fallback
+		return result
+	}
+
+	// Parse output like:
+	// 1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
+	// 2: ens3    inet 10.0.0.238/24 brd 10.0.0.255 scope global dynamic ens3\       valid_lft 85895sec preferred_lft 85895sec
+	// 3: ens3    inet6 fe80::17ff:fe00:238/64 scope link \       valid_lft forever preferred_lft forever
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+
+		// fields[1] is interface name, fields[2] is inet/inet6, fields[3] is IP/prefix
+		iface := strings.TrimSuffix(fields[1], ":")
+		ipType := fields[2]
+		ipWithPrefix := fields[3]
+
+		// Only process inet and inet6
+		if ipType != "inet" && ipType != "inet6" {
+			continue
+		}
+
+		// Extract IP without prefix
+		ip := strings.Split(ipWithPrefix, "/")[0]
+
+		// Skip loopback
+		if iface == "lo" {
+			continue
+		}
+
+		result = append(result, hostIPInfo{
+			Iface: iface,
+			IP:    ip,
+		})
+	}
+
+	return result
 }
 
 // getExternalIPWithSource uses curl with --interface to get public IP for a specific local IP

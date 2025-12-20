@@ -21,7 +21,9 @@ RUN apk add --no-cache \
     socat \
     coreutils \
     net-tools \
-    wireguard-tools
+    wireguard-tools \
+    util-linux \
+    iproute2
 
 # Create symlink for bash compatibility (acme.sh uses #!/usr/bin/bash)
 RUN ln -sf /bin/bash /usr/bin/bash
