@@ -497,14 +497,70 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 }
 
 // getExternalIPWithSource uses curl with --interface to get public IP for a specific local IP
+// In container environment, it uses nsenter to access host network namespace
 func (d *DetectorService) getExternalIPWithSource(localIP, apiURL string) string {
-	// Use curl with --interface to bind to specific local IP
-	cmd := exec.Command("curl", "-s", "--max-time", "5", "--interface", localIP, apiURL)
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
+	var output []byte
+	var err error
+
+	// Try using nsenter to access host network namespace (for container environment)
+	// This allows the container to use host's network interfaces
+	cmd := exec.Command("nsenter", "--net=/host/proc/1/ns/net", "curl", "-s", "--max-time", "5", "--interface", localIP, apiURL)
+	output, err = cmd.Output()
+	if err == nil && len(output) > 0 {
+		publicIP := strings.TrimSpace(string(output))
+		// Filter out WARP/VPN IPs
+		if !isWarpOrVpnIP(publicIP) {
+			return publicIP
+		}
 	}
-	return strings.TrimSpace(string(output))
+
+	// Fallback: Try direct curl (for non-container or privileged container environment)
+	cmd = exec.Command("curl", "-s", "--max-time", "5", "--interface", localIP, apiURL)
+	output, err = cmd.Output()
+	if err == nil && len(output) > 0 {
+		publicIP := strings.TrimSpace(string(output))
+		// Filter out WARP/VPN IPs
+		if !isWarpOrVpnIP(publicIP) {
+			return publicIP
+		}
+	}
+
+	return ""
+}
+
+// isWarpOrVpnIP checks if an IP belongs to WARP/Cloudflare or other VPN services
+func isWarpOrVpnIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	// Check IPv4 WARP/Cloudflare ranges
+	if ip4 := ip.To4(); ip4 != nil {
+		// 104.0.0.0/8 - Cloudflare range (includes WARP)
+		if ip4[0] == 104 {
+			return true
+		}
+		// 172.16.0.0/12 - WARP internal IP range
+		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
+			return true
+		}
+		// 100.64.0.0/10 - Carrier-grade NAT (sometimes used by VPNs)
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+			return true
+		}
+	}
+
+	// Check IPv6 WARP/Cloudflare ranges
+	if ip.To4() == nil {
+		ipStr = ip.String()
+		// 2606:4700::/32 - Cloudflare IPv6 range
+		if strings.HasPrefix(ipStr, "2606:4700:") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (d *DetectorService) getExternalIP(url string) string {

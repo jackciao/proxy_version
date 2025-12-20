@@ -19,6 +19,8 @@ services:
       - ./mock_sys/opt/1panel:/opt/1panel:ro
       - ./mock_sys/www/server:/www/server:ro
       - ./mock_sys/root/.acme.sh:/root/.acme.sh
+      # Mount host /proc for nsenter to access host network namespace (multi-IP detection)
+      - /proc:/host/proc:ro
     environment:
       - TZ=Asia/Shanghai
       - PORT=8080
@@ -27,7 +29,7 @@ services:
       - DATABASE_PATH=/app/data/proxy_version.db
       - DATA_DIR=/app/data
     privileged: true
-    # pid: host
+    pid: host  # Required for nsenter to access host network namespace
     # network_mode: host
     logging:
       driver: "json-file"
