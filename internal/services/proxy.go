@@ -136,28 +136,48 @@ systemctl daemon-reload 2>/dev/null || true
 `
 	s.runOnHost("bash", "-c", stopScript)
 	
-	// Remove sing-box binary with explicit error check
+	// Remove sing-box binary from ALL possible installation paths
+	// This must match the paths checked in GetCoreStatus()
 	removeScript := `
-SING_BOX_PATH="/usr/local/bin/sing-box"
+# All possible sing-box installation paths (must match GetCoreStatus detection)
+SING_BOX_PATHS="/usr/local/bin/sing-box /etc/v2ray-agent/sing-box/sing-box /usr/bin/sing-box"
+REMOVED=0
+FAILED=0
 
-# Check if file exists
-if [ ! -f "$SING_BOX_PATH" ]; then
-    echo "already_removed"
-    exit 0
+for SING_BOX_PATH in $SING_BOX_PATHS; do
+    if [ -f "$SING_BOX_PATH" ]; then
+        echo "Found sing-box at: $SING_BOX_PATH"
+        rm -fv "$SING_BOX_PATH" 2>&1
+        
+        # Verify removal
+        if [ -f "$SING_BOX_PATH" ]; then
+            echo "Failed to remove: $SING_BOX_PATH"
+            ls -la "$SING_BOX_PATH" 2>&1
+            FAILED=1
+        else
+            echo "Removed: $SING_BOX_PATH"
+            REMOVED=1
+        fi
+    fi
+done
+
+# Also clean up the sing-box directory if it exists
+if [ -d "/etc/v2ray-agent/sing-box" ]; then
+    rm -rf "/etc/v2ray-agent/sing-box" 2>&1
+    echo "Removed sing-box directory"
 fi
 
-# Try to remove with verbose output  
-rm -fv "$SING_BOX_PATH" 2>&1
-
-# Verify removal
-if [ -f "$SING_BOX_PATH" ]; then
+if [ "$FAILED" = "1" ]; then
     echo "removal_failed"
-    ls -la "$SING_BOX_PATH" 2>&1
     exit 1
-else
-    echo "removed_successfully"
-    exit 0
 fi
+
+if [ "$REMOVED" = "0" ]; then
+    echo "already_removed"
+fi
+
+echo "removed_successfully"
+exit 0
 `
 	output, err := s.runOnHost("bash", "-c", removeScript)
 	
