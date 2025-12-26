@@ -749,6 +749,7 @@ class App {
             const refreshBtn = document.getElementById('warp-refresh-btn');
             const deleteBtn = document.getElementById('warp-delete-btn');
             const upgradeSection = document.getElementById('warp-upgrade-section');
+            const streamingSection = document.getElementById('warp-streaming-section');
 
             if (s.configured) {
                 statusEl.innerHTML = '<span class="text-success">✓ 已配置</span>';
@@ -762,6 +763,7 @@ class App {
                 refreshBtn.style.display = 'inline-block';
                 deleteBtn.style.display = 'inline-block';
                 upgradeSection.style.display = s.account_type !== 'plus' ? 'block' : 'none';
+                streamingSection.style.display = 'block';
             } else {
                 statusEl.innerHTML = '<span class="text-muted">未配置</span>';
                 ipv4Row.style.display = 'none';
@@ -771,6 +773,7 @@ class App {
                 refreshBtn.style.display = 'none';
                 deleteBtn.style.display = 'none';
                 upgradeSection.style.display = 'none';
+                streamingSection.style.display = 'none';
             }
         } catch (e) {
             console.error('WARP status error:', e);
@@ -786,6 +789,7 @@ class App {
         document.getElementById('warp-refresh-btn')?.addEventListener('click', () => this.refreshWarp());
         document.getElementById('warp-delete-btn')?.addEventListener('click', () => this.deleteWarp());
         document.getElementById('warp-upgrade-btn')?.addEventListener('click', () => this.upgradeWarp());
+        document.getElementById('warp-check-streaming-btn')?.addEventListener('click', () => this.checkWarpStreaming());
     }
 
     async registerWarp() {
@@ -835,6 +839,56 @@ class App {
             this.loadWarpStatus();
         } catch (e) {
             this.showToast(e.message, 'error');
+        }
+    }
+
+    async checkWarpStreaming() {
+        const btn = document.getElementById('warp-check-streaming-btn');
+        const resultsDiv = document.getElementById('streaming-results');
+        const netflixStatus = document.getElementById('netflix-status');
+        const disneyStatus = document.getElementById('disney-status');
+        const youtubeStatus = document.getElementById('youtube-status');
+        const chatgptStatus = document.getElementById('chatgpt-status');
+
+        // 显示检测中状态
+        btn.disabled = true;
+        btn.textContent = '检测中...';
+        resultsDiv.style.display = 'block';
+
+        [netflixStatus, disneyStatus, youtubeStatus, chatgptStatus].forEach(el => {
+            el.textContent = '检测中';
+            el.className = 'streaming-status checking';
+        });
+
+        try {
+            const result = await API.checkWarpStreaming();
+
+            // 更新各服务状态
+            this.updateStreamingStatus(netflixStatus, result.netflix);
+            this.updateStreamingStatus(disneyStatus, result.disney_plus);
+            this.updateStreamingStatus(youtubeStatus, result.youtube);
+            this.updateStreamingStatus(chatgptStatus, result.chatgpt);
+
+            this.showToast('流媒体检测完成', 'success');
+        } catch (e) {
+            this.showToast('检测失败: ' + e.message, 'error');
+            [netflixStatus, disneyStatus, youtubeStatus, chatgptStatus].forEach(el => {
+                el.textContent = '失败';
+                el.className = 'streaming-status locked';
+            });
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '检测';
+        }
+    }
+
+    updateStreamingStatus(element, status) {
+        if (status.unlocked) {
+            element.textContent = status.message || '可解锁';
+            element.className = 'streaming-status unlocked';
+        } else {
+            element.textContent = status.message || '不支持';
+            element.className = 'streaming-status locked';
         }
     }
 

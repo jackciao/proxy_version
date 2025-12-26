@@ -1386,3 +1386,45 @@ a {
 .toggle-switch input:focus+.toggle-slider {
     box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
 }
+
+/* Streaming Check */
+.streaming-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+}
+
+.streaming-icon {
+    font-size: 1rem;
+}
+
+.streaming-name {
+    flex: 1;
+    color: var(--text-secondary);
+}
+
+.streaming-status {
+    font-weight: 500;
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: var(--radius-sm);
+}
+
+.streaming-status.unlocked {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.streaming-status.locked {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--error);
+}
+
+.streaming-status.checking {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-primary);
+}

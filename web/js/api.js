@@ -54,6 +54,7 @@ const API = {
     upgradeWarp(licenseKey) { return this.post('/warp/upgrade', { license_key: licenseKey }) },
     importWarp(config) { return this.post('/warp/import', config) },
     deleteWarp() { return this.delete('/warp') },
-    exportWarp() { return this.get('/warp/export') }
+    exportWarp() { return this.get('/warp/export') },
+    checkWarpStreaming() { return this.get('/warp/streaming-check') }
 };
 window.API = API;

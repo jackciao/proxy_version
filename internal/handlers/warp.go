@@ -168,3 +168,17 @@ func ToggleNodeWarp(db *sql.DB) gin.HandlerFunc {
 		})
 	}
 }
+
+// CheckStreamingUnlock checks if WARP IP can unlock streaming services
+func CheckStreamingUnlock(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		warpService := services.NewWarpService(db)
+		result, err := warpService.CheckStreamingUnlock()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, result)
+	}
+}

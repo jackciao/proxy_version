@@ -297,27 +297,50 @@ func (s *WarpService) Refresh() (*WarpConfig, error) {
 	return newConfig, nil
 }
 
-// UpgradeToPlus upgrades the account to WARP+
+// UpgradeToPlus upgrades the account to WARP+ using Cloudflare API
 func (s *WarpService) UpgradeToPlus(licenseKey string) error {
 	config, err := s.GetConfig()
 	if err != nil || config == nil {
 		return fmt.Errorf("请先注册 WARP 账号")
 	}
 
-	originalDir, _ := os.Getwd()
-	os.Chdir(warpConfigDir)
-	defer os.Chdir(originalDir)
-
-	// Update license
-	cmd := exec.Command(wgcfPath, "update", "--license-key", licenseKey)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("升级失败: %v, output: %s", err, string(output))
+	if config.DeviceID == "" || config.AccessToken == "" {
+		return fmt.Errorf("账号信息不完整，请重新注册")
 	}
 
-	// Regenerate config
-	cmd = exec.Command(wgcfPath, "generate")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("重新生成配置失败: %v, output: %s", err, string(output))
+	// Use Cloudflare WARP API to upgrade
+	apiURL := fmt.Sprintf("https://api.cloudflareclient.com/v0a2158/reg/%s/account", config.DeviceID)
+
+	reqBody := map[string]interface{}{
+		"license": licenseKey,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PUT", apiURL, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+config.AccessToken)
+	req.Header.Set("User-Agent", "okhttp/3.12.1")
+	req.Header.Set("CF-Client-Version", "a-6.10-2158")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("API 请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("升级失败 (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	// Update database
@@ -544,4 +567,157 @@ func (s *WarpService) ExportAsJSON() (string, error) {
 	}
 
 	return string(jsonBytes), nil
+}
+
+// StreamingCheckResult represents the result of streaming service unlock check
+type StreamingCheckResult struct {
+	Netflix     StreamingStatus `json:"netflix"`
+	DisneyPlus  StreamingStatus `json:"disney_plus"`
+	YouTube     StreamingStatus `json:"youtube"`
+	ChatGPT     StreamingStatus `json:"chatgpt"`
+	CheckedAt   int64           `json:"checked_at"`
+	WarpIP      string          `json:"warp_ip"`
+}
+
+type StreamingStatus struct {
+	Unlocked bool   `json:"unlocked"`
+	Region   string `json:"region,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
+// CheckStreamingUnlock checks if current WARP IP can unlock streaming services
+func (s *WarpService) CheckStreamingUnlock() (*StreamingCheckResult, error) {
+	config, err := s.GetConfig()
+	if err != nil || config == nil {
+		return nil, fmt.Errorf("WARP 未配置")
+	}
+
+	result := &StreamingCheckResult{
+		CheckedAt: time.Now().Unix(),
+		WarpIP:    config.IPv4Address,
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // Don't follow redirects
+		},
+	}
+
+	// Check Netflix
+	result.Netflix = s.checkNetflix(client)
+	
+	// Check Disney+
+	result.DisneyPlus = s.checkDisneyPlus(client)
+	
+	// Check YouTube Premium
+	result.YouTube = s.checkYouTube(client)
+	
+	// Check ChatGPT
+	result.ChatGPT = s.checkChatGPT(client)
+
+	return result, nil
+}
+
+func (s *WarpService) checkNetflix(client *http.Client) StreamingStatus {
+	// Try to access Netflix's self-produced content page
+	// If blocked, Netflix returns error or redirect
+	urls := []string{
+		"https://www.netflix.com/title/80018499", // Self-produced: Stranger Things
+		"https://www.netflix.com/title/70143836", // Self-produced: Breaking Bad
+	}
+	
+	for _, url := range urls {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		
+		// 200 or 301/302 to video page = unlocked
+		// 403 or redirect to "not available" = blocked
+		if resp.StatusCode == 200 || resp.StatusCode == 301 || resp.StatusCode == 302 {
+			location := resp.Header.Get("Location")
+			if location == "" || !strings.Contains(location, "notavailable") {
+				return StreamingStatus{Unlocked: true, Message: "可解锁"}
+			}
+		}
+	}
+	
+	return StreamingStatus{Unlocked: false, Message: "不支持"}
+}
+
+func (s *WarpService) checkDisneyPlus(client *http.Client) StreamingStatus {
+	req, _ := http.NewRequest("GET", "https://www.disneyplus.com/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return StreamingStatus{Unlocked: false, Message: "检测失败"}
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	
+	// Check for region block indicators
+	if strings.Contains(bodyStr, "unavailable") || strings.Contains(bodyStr, "not available in your region") {
+		return StreamingStatus{Unlocked: false, Message: "不支持"}
+	}
+	
+	if resp.StatusCode == 200 {
+		return StreamingStatus{Unlocked: true, Message: "可解锁"}
+	}
+	
+	return StreamingStatus{Unlocked: false, Message: "未知"}
+}
+
+func (s *WarpService) checkYouTube(client *http.Client) StreamingStatus {
+	// Check YouTube Premium availability by checking music.youtube.com
+	req, _ := http.NewRequest("GET", "https://music.youtube.com/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return StreamingStatus{Unlocked: false, Message: "检测失败"}
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode == 200 {
+		return StreamingStatus{Unlocked: true, Message: "可解锁"}
+	}
+	
+	return StreamingStatus{Unlocked: false, Message: "受限"}
+}
+
+func (s *WarpService) checkChatGPT(client *http.Client) StreamingStatus {
+	req, _ := http.NewRequest("GET", "https://chat.openai.com/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return StreamingStatus{Unlocked: false, Message: "检测失败"}
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	
+	// Check for common block indicators
+	if strings.Contains(bodyStr, "unavailable in your country") || 
+	   strings.Contains(bodyStr, "not available") ||
+	   strings.Contains(bodyStr, "Access denied") {
+		return StreamingStatus{Unlocked: false, Message: "不支持"}
+	}
+	
+	if resp.StatusCode == 200 || resp.StatusCode == 302 || resp.StatusCode == 301 {
+		return StreamingStatus{Unlocked: true, Message: "可访问"}
+	}
+	
+	return StreamingStatus{Unlocked: false, Message: "受限"}
 }

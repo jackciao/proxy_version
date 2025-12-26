@@ -100,6 +100,7 @@ func main() {
 				warp.POST("/import", handlers.ImportWarpConfig(db))
 				warp.DELETE("", handlers.DeleteWarpConfig(db))
 				warp.GET("/export", handlers.ExportWarpConfig(db))
+				warp.GET("/streaming-check", handlers.CheckStreamingUnlock(db))
 			}
 
 			// Node WARP toggle
