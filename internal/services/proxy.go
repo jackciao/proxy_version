@@ -120,28 +120,53 @@ echo "sing-box installed successfully"
 func (s *ProxyService) UninstallSingBox() error {
 	// Stop all node services first (use for loop since wildcard doesn't work with systemctl)
 	stopScript := `
-for service in $(systemctl list-units --type=service --all | grep 'proxy_node_' | awk '{print $1}'); do
+# Kill any running sing-box processes first
+pkill -9 sing-box 2>/dev/null || true
+sleep 1
+
+# Stop and disable all proxy node services
+for service in $(systemctl list-units --type=service --all 2>/dev/null | grep 'proxy_node_' | awk '{print $1}'); do
     systemctl stop "$service" 2>/dev/null || true
     systemctl disable "$service" 2>/dev/null || true
 done
-# Also clean up service files
+
+# Clean up service files
 rm -f /etc/systemd/system/proxy_node_*.service
-systemctl daemon-reload
+systemctl daemon-reload 2>/dev/null || true
 `
 	s.runOnHost("bash", "-c", stopScript)
 	
-	// Remove sing-box binary
-	output, err := s.runOnHost("bash", "-c", "rm -f /usr/local/bin/sing-box && test ! -f /usr/local/bin/sing-box && echo 'removed'")
+	// Remove sing-box binary with explicit error check
+	removeScript := `
+SING_BOX_PATH="/usr/local/bin/sing-box"
+
+# Check if file exists
+if [ ! -f "$SING_BOX_PATH" ]; then
+    echo "already_removed"
+    exit 0
+fi
+
+# Try to remove with verbose output  
+rm -fv "$SING_BOX_PATH" 2>&1
+
+# Verify removal
+if [ -f "$SING_BOX_PATH" ]; then
+    echo "removal_failed"
+    ls -la "$SING_BOX_PATH" 2>&1
+    exit 1
+else
+    echo "removed_successfully"
+    exit 0
+fi
+`
+	output, err := s.runOnHost("bash", "-c", removeScript)
+	
 	if err != nil {
-		return fmt.Errorf("卸载失败: %v", err)
+		return fmt.Errorf("卸载失败: %v, 输出: %s", err, output)
 	}
 	
-	if !strings.Contains(output, "removed") {
-		// Verify removal
-		checkOutput, _ := s.runOnHost("bash", "-c", "test -f /usr/local/bin/sing-box && echo 'still exists' || echo 'removed'")
-		if strings.Contains(checkOutput, "still exists") {
-			return fmt.Errorf("sing-box 文件删除失败，可能需要 root 权限")
-		}
+	if strings.Contains(output, "removal_failed") {
+		return fmt.Errorf("sing-box 文件删除失败: %s", output)
 	}
 	
 	// Also remove config directory

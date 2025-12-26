@@ -181,21 +181,22 @@ update_system() {
         
         if [ "$USE_PREBUILT" = true ]; then
             # 预构建镜像更新（快速模式）
-            echo -e "\n${YELLOW}[1/3] 拉取最新镜像...${NC}"
+            echo -e "\n${YELLOW}[1/4] 拉取最新镜像...${NC}"
             docker pull jackciao/proxy_version:latest
             
-            echo -e "${YELLOW}[2/3] 停止现有容器...${NC}"
-            $COMPOSE_CMD down 2>/dev/null || true
-            
-            echo -e "${YELLOW}[3/3] 启动新容器...${NC}"
-            if [[ -f "$INSTALL_DIR/docker-compose.prebuilt.yml" ]]; then
-                $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
-            else
-                # 如果没有预构建配置文件，下载一个
-                echo -e "${YELLOW}下载预构建配置文件...${NC}"
+            # 确保有配置文件
+            if [[ ! -f "$INSTALL_DIR/docker-compose.prebuilt.yml" ]]; then
+                echo -e "${YELLOW}[2/4] 下载预构建配置文件...${NC}"
                 curl -fsSL -o docker-compose.prebuilt.yml https://raw.githubusercontent.com/jackciao/proxy_version/main/docker-compose.prebuilt.yml
-                $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
             fi
+            
+            echo -e "${YELLOW}[3/4] 停止并移除现有容器...${NC}"
+            $COMPOSE_CMD -f docker-compose.prebuilt.yml down 2>/dev/null || true
+            # 强制移除可能残留的容器（解决名称冲突）
+            docker rm -f proxy_version 2>/dev/null || true
+            
+            echo -e "${YELLOW}[4/4] 启动新容器...${NC}"
+            $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
             
             echo -e "\n${GREEN}✓ 更新完成！（预构建镜像模式）${NC}\n"
         else
