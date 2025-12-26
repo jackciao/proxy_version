@@ -6,6 +6,7 @@ class App {
         this.certificates = [];
         this.protocols = [];
         this.guideStep = 1;
+        this.warpEventHandlersInitialized = false;
         this.init()
     }
 
@@ -777,6 +778,10 @@ class App {
     }
 
     setupWarpEventHandlers() {
+        // 防止重复绑定事件监听器，避免多次弹窗
+        if (this.warpEventHandlersInitialized) return;
+        this.warpEventHandlersInitialized = true;
+        
         document.getElementById('warp-register-btn')?.addEventListener('click', () => this.registerWarp());
         document.getElementById('warp-refresh-btn')?.addEventListener('click', () => this.refreshWarp());
         document.getElementById('warp-delete-btn')?.addEventListener('click', () => this.deleteWarp());

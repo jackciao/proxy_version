@@ -247,10 +247,10 @@ func (s *WarpService) Refresh() (*WarpConfig, error) {
 		oldIPv6 = existingConfig.IPv6Address
 	}
 
-	// Try up to 3 times to get a different IP
+	// Try up to 10 times to get a different IP (increased for better success rate)
 	var newConfig *WarpConfig
 	var err error
-	maxRetries := 3
+	maxRetries := 10
 	
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// Delete existing config
@@ -273,8 +273,12 @@ func (s *WarpService) Refresh() (*WarpConfig, error) {
 		
 		if attempt < maxRetries {
 			fmt.Printf("WARP Refresh: got same IP on attempt %d, retrying...\n", attempt)
-			// Small delay before retry
-			time.Sleep(time.Second * 2)
+			// Exponential backoff: 1s, 2s, 3s, ... up to 5s max
+			sleepDuration := time.Duration(attempt)
+			if sleepDuration > 5 {
+				sleepDuration = 5
+			}
+			time.Sleep(time.Second * sleepDuration)
 		} else {
 			fmt.Printf("WARP Refresh: still same IP after %d attempts (Cloudflare may return same IP for same source)\n", maxRetries)
 		}
@@ -377,6 +381,7 @@ func (s *WarpService) DeleteConfig() error {
 
 // GenerateSingBoxOutbound generates sing-box WireGuard outbound config for sing-box 1.11+
 // Returns both the endpoint and outbound configs
+// Note: Only IPv4 is used to ensure better streaming service compatibility
 func (s *WarpService) GenerateSingBoxOutbound() (map[string]interface{}, error) {
 	config, err := s.GetConfig()
 	if err != nil || config == nil {
@@ -385,12 +390,13 @@ func (s *WarpService) GenerateSingBoxOutbound() (map[string]interface{}, error) 
 
 	// New sing-box 1.11+ format: use endpoint instead of legacy wireguard outbound
 	// The outbound references the endpoint
+	// Only use IPv4 address for better streaming service unlock compatibility
 	outbound := map[string]interface{}{
 		"type": "wireguard",
 		"tag":  "warp-out",
 		"local_address": []string{
 			config.IPv4Address,
-			config.IPv6Address,
+			// IPv6 is intentionally omitted to force IPv4-only routing for better streaming compatibility
 		},
 		"private_key": config.PrivateKey,
 		"peers": []map[string]interface{}{
@@ -399,7 +405,7 @@ func (s *WarpService) GenerateSingBoxOutbound() (map[string]interface{}, error) 
 				"server_port": 2408,
 				"public_key":  "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", // Cloudflare WARP public key
 				"reserved":    []int{0, 0, 0},
-				"allowed_ips": []string{"0.0.0.0/0", "::/0"},
+				"allowed_ips": []string{"0.0.0.0/0"}, // IPv4 only for better streaming unlock
 			},
 		},
 		"mtu": 1280,
