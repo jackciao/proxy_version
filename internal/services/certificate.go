@@ -6,8 +6,58 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+// CertProgress 证书申请进度
+type CertProgress struct {
+	Domain    string `json:"domain"`
+	Status    string `json:"status"`     // pending, running, success, failed
+	Step      int    `json:"step"`       // 当前步骤 1-5
+	TotalStep int    `json:"total_step"` // 总步骤数 5
+	StepName  string `json:"step_name"`  // 当前步骤描述
+	Error     string `json:"error,omitempty"`
+	UpdatedAt int64  `json:"updated_at"` // Unix timestamp
+}
+
+// 全局进度存储
+var (
+	certProgressMap   = make(map[string]*CertProgress)
+	certProgressMutex sync.RWMutex
+)
+
+// GetCertProgress 获取证书申请进度
+func GetCertProgress(domain string) *CertProgress {
+	certProgressMutex.RLock()
+	defer certProgressMutex.RUnlock()
+	if p, ok := certProgressMap[domain]; ok {
+		return p
+	}
+	return nil
+}
+
+// updateProgress 更新证书申请进度
+func updateProgress(domain string, step int, stepName, status, errMsg string) {
+	certProgressMutex.Lock()
+	defer certProgressMutex.Unlock()
+	certProgressMap[domain] = &CertProgress{
+		Domain:    domain,
+		Status:    status,
+		Step:      step,
+		TotalStep: 5,
+		StepName:  stepName,
+		Error:     errMsg,
+		UpdatedAt: time.Now().Unix(),
+	}
+}
+
+// clearProgress 清除进度记录
+func clearProgress(domain string) {
+	certProgressMutex.Lock()
+	defer certProgressMutex.Unlock()
+	delete(certProgressMap, domain)
+}
 
 type CertificateService struct {
 	acmePath string
@@ -22,33 +72,38 @@ func NewCertificateService() *CertificateService {
 }
 
 func (s *CertificateService) ApplyCertificate(domain, email, provider, method, dnsProvider, apiToken, cfEmail string) (string, string, error) {
-	// Ensure acme.sh is installed
+	// 初始化进度
+	updateProgress(domain, 1, "正在检查环境...", "running", "")
+
+	// 步骤1: 确保 acme.sh 已安装
+	updateProgress(domain, 1, "检查/安装 acme.sh", "running", "")
 	if _, err := os.Stat(s.acmePath); os.IsNotExist(err) {
+		updateProgress(domain, 1, "正在安装 acme.sh...", "running", "")
 		if err := s.installAcme(email); err != nil {
+			updateProgress(domain, 1, "安装 acme.sh 失败", "failed", err.Error())
 			return "", "", fmt.Errorf("安装 acme.sh 失败: %v", err)
 		}
 	}
 
-	// Validate email - Let's Encrypt requires valid contact email for account registration
+	// 验证邮箱
 	if email == "" {
+		updateProgress(domain, 1, "邮箱验证失败", "failed", "请提供有效的邮箱地址")
 		return "", "", fmt.Errorf("请提供有效的邮箱地址用于证书申请")
 	}
 	if !strings.Contains(email, "@") || strings.Contains(email, "example.com") {
+		updateProgress(domain, 1, "邮箱验证失败", "failed", "请提供有效的邮箱地址")
 		return "", "", fmt.Errorf("请提供有效的邮箱地址，不能使用示例邮箱")
 	}
 
-	// Clean old invalid account and register with valid email
-	// This fixes "invalidContact" error when acme.sh was installed with invalid email
+	// 步骤2: 注册账号
+	updateProgress(domain, 2, "正在注册 ACME 账号...", "running", "")
 	s.cleanOldAccount()
-	
-	// Register account with user's valid email
 	registerOutput, _ := s.runAcme("--register-account", "-m", email, "--force")
 	if strings.Contains(registerOutput, "error") && !strings.Contains(registerOutput, "already") {
-		// Try update if register fails
 		s.runAcme("--update-account", "--email", email)
 	}
 
-	// Set CA based on provider
+	// 设置 CA
 	switch provider {
 	case "letsencrypt", "":
 		s.runAcme("--set-default-ca", "--server", "letsencrypt")
@@ -58,25 +113,27 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 		s.runAcme("--set-default-ca", "--server", "buypass")
 	}
 
-	// Ensure cert directory exists
+	// 确保证书目录存在
 	if err := os.MkdirAll(s.certDir, 0755); err != nil {
+		updateProgress(domain, 2, "创建目录失败", "failed", err.Error())
 		return "", "", fmt.Errorf("创建证书目录失败: %v", err)
 	}
 
 	certPath := filepath.Join(s.certDir, domain+".crt")
 	keyPath := filepath.Join(s.certDir, domain+".key")
 
+	// 步骤3: 验证域名并签发证书
 	var output string
 	var err error
 
 	if method == "dns" {
-		// DNS validation
+		updateProgress(domain, 3, "正在进行 DNS 验证...", "running", "")
 		output, err = s.issueViaDNS(domain, dnsProvider, apiToken, cfEmail)
 	} else {
-		// Try webroot first (works with existing reverse proxy)
+		updateProgress(domain, 3, "正在进行 HTTP 验证...", "running", "")
 		output, err = s.issueViaWebroot(domain)
 		if err != nil {
-			// If webroot fails, try standalone
+			updateProgress(domain, 3, "尝试 Standalone 模式...", "running", "")
 			output, err = s.issueViaStandalone(domain)
 		}
 	}
@@ -85,18 +142,21 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 		if strings.Contains(output, "Cert success") || strings.Contains(output, "Cert already exists") {
 			// Certificate was actually issued successfully
 		} else {
-			// Check specific errors
+			var errMsg string
 			if strings.Contains(output, "port 80 is already used") {
-				return "", "", fmt.Errorf("80端口被占用，请使用 DNS 验证方式")
+				errMsg = "80端口被占用，请使用 DNS 验证方式"
+			} else if strings.Contains(output, "invalid domain") || strings.Contains(output, "Error add TXT") {
+				errMsg = fmt.Sprintf("DNS 验证失败: %s", s.extractError(output))
+			} else {
+				errMsg = fmt.Sprintf("证书申请失败: %s", s.extractError(output))
 			}
-			if strings.Contains(output, "invalid domain") || strings.Contains(output, "Error add TXT") {
-				return "", "", fmt.Errorf("DNS 验证失败: %s", s.extractError(output))
-			}
-			return "", "", fmt.Errorf("证书申请失败: %s", s.extractError(output))
+			updateProgress(domain, 3, "验证失败", "failed", errMsg)
+			return "", "", fmt.Errorf(errMsg)
 		}
 	}
 
-	// Install certificate
+	// 步骤4: 安装证书
+	updateProgress(domain, 4, "正在安装证书...", "running", "")
 	installArgs := []string{
 		"--install-cert", "-d", domain,
 		"--ecc",
@@ -106,14 +166,19 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 
 	installOutput, err := s.runAcme(installArgs...)
 	if err != nil && !strings.Contains(installOutput, "Installing") && !strings.Contains(installOutput, "installed") {
+		updateProgress(domain, 4, "安装证书失败", "failed", installOutput)
 		return "", "", fmt.Errorf("安装证书失败: %s", installOutput)
 	}
 
-	// Setup auto-renewal cron
+	// 步骤5: 配置自动续签
+	updateProgress(domain, 5, "配置自动续签...", "running", "")
 	go func() {
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * 2)
 		s.runAcme("--cron", "--home", "/root/.acme.sh")
 	}()
+
+	// 完成
+	updateProgress(domain, 5, "证书申请成功！", "success", "")
 
 	return certPath, keyPath, nil
 }

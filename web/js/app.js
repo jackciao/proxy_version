@@ -781,7 +781,7 @@ class App {
         // 防止重复绑定事件监听器，避免多次弹窗
         if (this.warpEventHandlersInitialized) return;
         this.warpEventHandlersInitialized = true;
-        
+
         document.getElementById('warp-register-btn')?.addEventListener('click', () => this.registerWarp());
         document.getElementById('warp-refresh-btn')?.addEventListener('click', () => this.refreshWarp());
         document.getElementById('warp-delete-btn')?.addEventListener('click', () => this.deleteWarp());
@@ -985,23 +985,97 @@ class App {
     }
 
     async applyCertificate() {
-        const d = document.getElementById('cert-domain').value;
-        const e = document.getElementById('cert-email').value;
-        const p = document.getElementById('cert-provider').value;
-        const m = document.getElementById('cert-method').value;
-        const dp = document.getElementById('dns-provider')?.value || '';
-        const t = document.getElementById('dns-token')?.value || '';
-        const cfe = document.getElementById('cf-email')?.value || '';
-        this.showToast('正在申请证书，请稍候...', 'info');
+        const domain = document.getElementById('cert-domain').value.trim();
+        const email = document.getElementById('cert-email').value.trim();
+        const provider = document.getElementById('cert-provider').value;
+        const method = document.getElementById('cert-method').value;
+        const dnsProvider = document.getElementById('dns-provider')?.value || '';
+        const apiToken = document.getElementById('dns-token')?.value || '';
+        const cfEmail = document.getElementById('cf-email')?.value || '';
+
+        if (!domain) {
+            this.showToast('请输入域名', 'error');
+            return;
+        }
+
+        // 显示进度区域，隐藏提交按钮
+        const progressSection = document.getElementById('cert-progress-section');
+        const submitBtn = document.getElementById('cert-submit-btn');
+        const progressStep = document.getElementById('cert-progress-step');
+        const progressName = document.getElementById('cert-progress-name');
+        const progressFill = document.getElementById('cert-progress-fill');
+        const progressError = document.getElementById('cert-progress-error');
+
+        progressSection.classList.remove('hidden');
+        progressError.classList.add('hidden');
+        submitBtn.disabled = true;
+        submitBtn.textContent = '申请中...';
+        progressFill.style.width = '0%';
+        progressStep.textContent = '步骤 1/5';
+        progressName.textContent = '正在准备...';
+
+        // 启动进度轮询
+        let pollInterval = null;
+        const pollProgress = async () => {
+            try {
+                const progress = await API.getCertProgress(domain);
+                if (progress) {
+                    progressStep.textContent = `步骤 ${progress.step}/${progress.total_step}`;
+                    progressName.textContent = progress.step_name || '处理中...';
+                    progressFill.style.width = `${(progress.step / progress.total_step) * 100}%`;
+
+                    if (progress.status === 'failed') {
+                        progressError.textContent = progress.error || '申请失败';
+                        progressError.classList.remove('hidden');
+                        progressFill.style.background = '#ef4444';
+                    }
+                }
+            } catch (e) {
+                console.error('Progress poll error:', e);
+            }
+        };
+
+        // 每秒轮询一次
+        pollInterval = setInterval(pollProgress, 1000);
+
         try {
-            await API.applyCertificate({ domain: d, email: e, provider: p, method: m, dns_provider: m === 'dns' ? dp : '', api_token: m === 'dns' ? t : '', cf_email: m === 'dns' && dp === 'cloudflare' ? cfe : '' });
+            await API.applyCertificate({
+                domain,
+                email,
+                provider,
+                method,
+                dns_provider: method === 'dns' ? dnsProvider : '',
+                api_token: method === 'dns' ? apiToken : '',
+                cf_email: method === 'dns' && dnsProvider === 'cloudflare' ? cfEmail : ''
+            });
+
+            // 申请成功
+            clearInterval(pollInterval);
+            progressFill.style.width = '100%';
+            progressStep.textContent = '步骤 5/5';
+            progressName.textContent = '✓ 证书申请成功！';
             this.showToast('证书申请成功！将自动续签', 'success');
-            this.closeModal();
-            document.getElementById('apply-cert-form').reset();
-            if (this.currentPage === 'certificates') this.loadCertificates();
-            await this.loadCertificatesForDropdown();
+
+            // 延迟关闭模态框
+            setTimeout(() => {
+                this.closeModal();
+                document.getElementById('apply-cert-form').reset();
+                progressSection.classList.add('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = '申请';
+                if (this.currentPage === 'certificates') this.loadCertificates();
+                this.loadCertificatesForDropdown();
+            }, 1500);
+
         } catch (er) {
-            this.showToast(er.message, 'error')
+            clearInterval(pollInterval);
+            progressError.textContent = er.message || '申请失败';
+            progressError.classList.remove('hidden');
+            progressFill.style.background = '#ef4444';
+            progressName.textContent = '申请失败';
+            submitBtn.disabled = false;
+            submitBtn.textContent = '重试';
+            this.showToast(er.message, 'error');
         }
     }
 

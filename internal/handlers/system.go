@@ -275,3 +275,28 @@ func ApplyCertificate(db *sql.DB) gin.HandlerFunc {
 		})
 	}
 }
+
+// GetCertProgress returns the current certificate application progress
+func GetCertProgress() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		domain := c.Param("domain")
+		if domain == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "域名不能为空"})
+			return
+		}
+
+		progress := services.GetCertProgress(domain)
+		if progress == nil {
+			c.JSON(http.StatusOK, gin.H{
+				"domain":     domain,
+				"status":     "pending",
+				"step":       0,
+				"total_step": 5,
+				"step_name":  "等待开始...",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, progress)
+	}
+}

@@ -547,9 +547,27 @@
                                 <input type="password" id="dns-token" placeholder="API Token 或 Global API Key">
                             </div>
                         </div>
+                        <!-- 证书申请进度显示 -->
+                        <div id="cert-progress-section" class="hidden"
+                            style="margin-top:var(--space-md);padding:var(--space-md);background:var(--bg-secondary);border-radius:var(--radius-md);">
+                            <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-sm);">
+                                <span id="cert-progress-step" style="font-weight:500;color:var(--text-primary);">步骤
+                                    1/5</span>
+                                <span id="cert-progress-name" style="color:var(--text-secondary);">正在准备...</span>
+                            </div>
+                            <div class="progress-bar"
+                                style="height:8px;background:var(--bg-tertiary);border-radius:4px;overflow:hidden;">
+                                <div id="cert-progress-fill"
+                                    style="width:0%;height:100%;background:linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));transition:width 0.3s ease;">
+                                </div>
+                            </div>
+                            <div id="cert-progress-error" class="hidden"
+                                style="margin-top:var(--space-sm);padding:var(--space-sm);background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-sm);color:#ef4444;font-size:0.85rem;">
+                            </div>
+                        </div>
                         <div class="form-actions">
                             <button type="button" class="btn btn-secondary modal-cancel">取消</button>
-                            <button type="submit" class="btn btn-primary">申请</button>
+                            <button type="submit" class="btn btn-primary" id="cert-submit-btn">申请</button>
                         </div>
                     </form>
                 </div>
