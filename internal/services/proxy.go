@@ -118,13 +118,35 @@ echo "sing-box installed successfully"
 
 // UninstallSingBox removes sing-box from the host system
 func (s *ProxyService) UninstallSingBox() error {
-	script := `
-rm -f /usr/local/bin/sing-box
-systemctl stop 'proxy_node_*' 2>/dev/null || true
-echo "sing-box uninstalled"
+	// Stop all node services first (use for loop since wildcard doesn't work with systemctl)
+	stopScript := `
+for service in $(systemctl list-units --type=service --all | grep 'proxy_node_' | awk '{print $1}'); do
+    systemctl stop "$service" 2>/dev/null || true
+    systemctl disable "$service" 2>/dev/null || true
+done
+# Also clean up service files
+rm -f /etc/systemd/system/proxy_node_*.service
+systemctl daemon-reload
 `
-	cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", "bash", "-c", script)
-	cmd.CombinedOutput()
+	s.runOnHost("bash", "-c", stopScript)
+	
+	// Remove sing-box binary
+	output, err := s.runOnHost("bash", "-c", "rm -f /usr/local/bin/sing-box && test ! -f /usr/local/bin/sing-box && echo 'removed'")
+	if err != nil {
+		return fmt.Errorf("卸载失败: %v", err)
+	}
+	
+	if !strings.Contains(output, "removed") {
+		// Verify removal
+		checkOutput, _ := s.runOnHost("bash", "-c", "test -f /usr/local/bin/sing-box && echo 'still exists' || echo 'removed'")
+		if strings.Contains(checkOutput, "still exists") {
+			return fmt.Errorf("sing-box 文件删除失败，可能需要 root 权限")
+		}
+	}
+	
+	// Also remove config directory
+	s.runOnHost("bash", "-c", "rm -rf /etc/v2ray-agent/nodes")
+	
 	return nil
 }
 

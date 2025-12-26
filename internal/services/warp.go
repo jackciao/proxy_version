@@ -237,22 +237,47 @@ func (s *WarpService) callCloudflareRegisterAPI(publicKey string) (*CloudflareRe
 
 // Refresh re-registers to get a new WARP IP (useful when streaming unlock becomes ineffective)
 func (s *WarpService) Refresh() (*WarpConfig, error) {
-	// Backup license key if exists
+	// Backup existing config
 	existingConfig, _ := s.GetConfig()
 	var licenseKey string
+	var oldIPv4, oldIPv6 string
 	if existingConfig != nil {
 		licenseKey = existingConfig.LicenseKey
+		oldIPv4 = existingConfig.IPv4Address
+		oldIPv6 = existingConfig.IPv6Address
 	}
 
-	// Delete existing config
-	if err := s.DeleteConfig(); err != nil {
-		return nil, err
-	}
+	// Try up to 3 times to get a different IP
+	var newConfig *WarpConfig
+	var err error
+	maxRetries := 3
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Delete existing config
+		if delErr := s.DeleteConfig(); delErr != nil {
+			return nil, delErr
+		}
 
-	// Re-register
-	newConfig, err := s.Register()
-	if err != nil {
-		return nil, err
+		// Re-register
+		newConfig, err = s.Register()
+		if err != nil {
+			return nil, err
+		}
+
+		// Check if we got a different IP
+		if newConfig.IPv4Address != oldIPv4 || newConfig.IPv6Address != oldIPv6 {
+			fmt.Printf("WARP Refresh: got new IP after %d attempts (old: %s, new: %s)\n", 
+				attempt, oldIPv4, newConfig.IPv4Address)
+			break
+		}
+		
+		if attempt < maxRetries {
+			fmt.Printf("WARP Refresh: got same IP on attempt %d, retrying...\n", attempt)
+			// Small delay before retry
+			time.Sleep(time.Second * 2)
+		} else {
+			fmt.Printf("WARP Refresh: still same IP after %d attempts (Cloudflare may return same IP for same source)\n", maxRetries)
+		}
 	}
 
 	// If had WARP+ license, re-apply it
