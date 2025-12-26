@@ -148,42 +148,68 @@ reinstall() {
 
 update_system() {
     echo -e "\n${CYAN}🔄 更新系统${NC}"
-    echo -e "${YELLOW}将拉取最新代码并重建容器${NC}\n"
     
-    # 检测是否有预构建配置文件
+    cd "$INSTALL_DIR"
+    
+    # 自动检测部署方式
+    local IS_GIT_REPO=false
     local USE_PREBUILT=false
-    if [[ -f "$INSTALL_DIR/docker-compose.prebuilt.yml" ]]; then
-        echo -e "${GREEN}检测到预构建镜像配置${NC}"
-        read -p "使用预构建镜像（推荐，快速更新）? (Y/n): " use_prebuilt
-        if [[ ! "$use_prebuilt" =~ ^[Nn]$ ]]; then
+    
+    if [[ -d "$INSTALL_DIR/.git" ]]; then
+        IS_GIT_REPO=true
+        echo -e "${GREEN}检测到 Git 仓库（源码部署）${NC}"
+    else
+        echo -e "${GREEN}检测到预构建镜像部署（无 Git 仓库）${NC}"
+    fi
+    
+    # 如果是 Git 仓库，询问使用哪种方式
+    if [ "$IS_GIT_REPO" = true ] && [[ -f "$INSTALL_DIR/docker-compose.prebuilt.yml" ]]; then
+        echo -e "${YELLOW}可选择更新方式：${NC}"
+        echo -e "  1. 预构建镜像（推荐，快速，约30秒）"
+        echo -e "  2. 源码构建（需要编译，约5-10分钟）"
+        read -p "选择 [1/2]: " update_choice
+        if [[ "$update_choice" != "2" ]]; then
             USE_PREBUILT=true
         fi
+    elif [ "$IS_GIT_REPO" = false ]; then
+        # 非 Git 仓库，只能使用预构建镜像
+        USE_PREBUILT=true
     fi
     
     read -p "确定要更新到最新版本? (y/N): " cf
     if [[ "$cf" =~ ^[Yy]$ ]]; then
-        cd "$INSTALL_DIR"
-        
-        # 配置 git safe.directory (解决不同用户操作的权限问题)
-        git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
-        
-        # 拉取最新代码
-        echo -e "\n${YELLOW}[1/4] 拉取最新代码...${NC}"
-        git pull
-        
-        # 停止现有容器
-        echo -e "${YELLOW}[2/4] 停止现有容器...${NC}"
-        $COMPOSE_CMD down 2>/dev/null || true
         
         if [ "$USE_PREBUILT" = true ]; then
-            # 使用预构建镜像（快速模式）
-            echo -e "${YELLOW}[3/4] 拉取最新镜像...${NC}"
+            # 预构建镜像更新（快速模式）
+            echo -e "\n${YELLOW}[1/3] 拉取最新镜像...${NC}"
             docker pull jackciao/proxy_version:latest
             
-            echo -e "${YELLOW}[4/4] 启动容器...${NC}"
-            $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
+            echo -e "${YELLOW}[2/3] 停止现有容器...${NC}"
+            $COMPOSE_CMD down 2>/dev/null || true
+            
+            echo -e "${YELLOW}[3/3] 启动新容器...${NC}"
+            if [[ -f "$INSTALL_DIR/docker-compose.prebuilt.yml" ]]; then
+                $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
+            else
+                # 如果没有预构建配置文件，下载一个
+                echo -e "${YELLOW}下载预构建配置文件...${NC}"
+                curl -fsSL -o docker-compose.prebuilt.yml https://raw.githubusercontent.com/jackciao/proxy_version/main/docker-compose.prebuilt.yml
+                $COMPOSE_CMD -f docker-compose.prebuilt.yml up -d
+            fi
+            
+            echo -e "\n${GREEN}✓ 更新完成！（预构建镜像模式）${NC}\n"
         else
-            # 本地构建模式（检测低内存环境）
+            # 源码构建模式
+            # 配置 git safe.directory
+            git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+            
+            echo -e "\n${YELLOW}[1/4] 拉取最新代码...${NC}"
+            git pull
+            
+            echo -e "${YELLOW}[2/4] 停止现有容器...${NC}"
+            $COMPOSE_CMD down 2>/dev/null || true
+            
+            # 删除旧镜像
             echo -e "${YELLOW}[3/4] 删除旧镜像...${NC}"
             $DOCKER_CMD rmi proxy_version-proxy_version 2>/dev/null || true
             $DOCKER_CMD rmi proxy_version_proxy_version 2>/dev/null || true
@@ -212,9 +238,9 @@ update_system() {
             
             echo -e "${YELLOW}[4/4] 构建新镜像并启动...${NC}"
             $COMPOSE_CMD up -d --build
+            
+            echo -e "\n${GREEN}✓ 更新完成！（源码构建模式）${NC}\n"
         fi
-        
-        echo -e "\n${GREEN}✓ 更新完成！${NC}\n"
     fi
 }
 
