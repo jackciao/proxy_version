@@ -750,19 +750,31 @@ class App {
             const deleteBtn = document.getElementById('warp-delete-btn');
             const upgradeSection = document.getElementById('warp-upgrade-section');
             const streamingSection = document.getElementById('warp-streaming-section');
+            const importBtn = document.getElementById('warp-import-btn');
 
             if (s.configured) {
                 statusEl.innerHTML = '<span class="text-success">✓ 已配置</span>';
                 document.getElementById('warp-ipv4').textContent = s.ipv4 || '-';
                 document.getElementById('warp-ipv6').textContent = s.ipv6 ? (s.ipv6.length > 30 ? s.ipv6.substring(0, 30) + '...' : s.ipv6) : '-';
-                document.getElementById('warp-type').textContent = s.account_type === 'plus' ? 'WARP+' : (s.account_type === 'teams' ? 'Zero Trust' : '免费');
+
+                // 根据账号类型显示不同标签
+                let typeLabel = '免费';
+                if (s.account_type === 'plus') typeLabel = 'WARP+';
+                else if (s.account_type === 'teams') typeLabel = 'Zero Trust';
+                else if (s.account_type === 'imported') typeLabel = '手动导入';
+                document.getElementById('warp-type').textContent = typeLabel;
+
                 ipv4Row.style.display = s.ipv4 ? 'flex' : 'none';
                 ipv6Row.style.display = s.ipv6 ? 'flex' : 'none';
                 typeRow.style.display = 'flex';
                 registerBtn.style.display = 'none';
-                refreshBtn.style.display = 'inline-block';
+                importBtn.style.display = 'none';
                 deleteBtn.style.display = 'inline-block';
-                upgradeSection.style.display = s.account_type !== 'plus' ? 'block' : 'none';
+
+                // 导入的配置无法切换 IP 和升级
+                const isImported = s.account_type === 'imported';
+                refreshBtn.style.display = isImported ? 'none' : 'inline-block';
+                upgradeSection.style.display = (isImported || s.account_type === 'plus') ? 'none' : 'block';
                 streamingSection.style.display = 'block';
             } else {
                 statusEl.innerHTML = '<span class="text-muted">未配置</span>';
@@ -770,6 +782,7 @@ class App {
                 ipv6Row.style.display = 'none';
                 typeRow.style.display = 'none';
                 registerBtn.style.display = 'inline-block';
+                importBtn.style.display = 'inline-block';
                 refreshBtn.style.display = 'none';
                 deleteBtn.style.display = 'none';
                 upgradeSection.style.display = 'none';
@@ -790,6 +803,13 @@ class App {
         document.getElementById('warp-delete-btn')?.addEventListener('click', () => this.deleteWarp());
         document.getElementById('warp-upgrade-btn')?.addEventListener('click', () => this.upgradeWarp());
         document.getElementById('warp-check-streaming-btn')?.addEventListener('click', () => this.checkWarpStreaming());
+        document.getElementById('warp-import-btn')?.addEventListener('click', () => this.openModal('warp-import-modal'));
+
+        // 导入表单提交
+        document.getElementById('warp-import-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await this.importWarp();
+        });
     }
 
     async registerWarp() {
@@ -797,6 +817,34 @@ class App {
         try {
             await API.registerWarp();
             this.showToast('WARP 账号注册成功', 'success');
+            this.loadWarpStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+        }
+    }
+
+    async importWarp() {
+        const privateKey = document.getElementById('import-private-key').value.trim();
+        const ipv4 = document.getElementById('import-ipv4').value.trim();
+        const ipv6 = document.getElementById('import-ipv6').value.trim();
+        const endpoint = document.getElementById('import-endpoint').value.trim();
+
+        if (!privateKey || !ipv4) {
+            this.showToast('请填写必要的配置信息', 'error');
+            return;
+        }
+
+        this.showToast('正在导入 WARP 配置...', 'info');
+        try {
+            await API.importWarp({
+                private_key: privateKey,
+                ipv4: ipv4,
+                ipv6: ipv6,
+                endpoint: endpoint
+            });
+            this.showToast('WARP 配置导入成功', 'success');
+            this.closeModal();
+            document.getElementById('warp-import-form').reset();
             this.loadWarpStatus();
         } catch (e) {
             this.showToast(e.message, 'error');
