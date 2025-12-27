@@ -334,12 +334,17 @@ func (s *WarpService) Refresh() (*WarpConfig, error) {
 
 	// If had WARP+ license, re-apply it
 	if licenseKey != "" {
-		if err := s.UpgradeToPlus(licenseKey); err != nil {
-			// Log but don't fail - account is still registered
-			fmt.Printf("Warning: failed to re-apply WARP+ license: %v\n", err)
-		}
 		newConfig.LicenseKey = licenseKey
-		newConfig.AccountType = "plus"
+		if err := s.UpgradeToPlus(licenseKey); err != nil {
+			// 升级失败，保持免费账号状态但保留 license key 供后续重试
+			fmt.Printf("Warning: failed to re-apply WARP+ license: %v\\n", err)
+			// 不设置 AccountType 为 plus，让它保持 newConfig 从 Register 获得的值（通常是 "free" 或空）
+		} else {
+			// 升级成功才设置为 plus
+			newConfig.AccountType = "plus"
+			// 重新保存配置以更新 AccountType
+			s.saveConfig(newConfig)
+		}
 	}
 
 	return newConfig, nil
