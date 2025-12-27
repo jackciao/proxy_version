@@ -849,15 +849,22 @@ class App {
         const disneyStatus = document.getElementById('disney-status');
         const youtubeStatus = document.getElementById('youtube-status');
         const chatgptStatus = document.getElementById('chatgpt-status');
+        const maxStatus = document.getElementById('max-status');
+        const appletvStatus = document.getElementById('appletv-status');
+        const primevideoStatus = document.getElementById('primevideo-status');
+
+        const allStatuses = [netflixStatus, disneyStatus, youtubeStatus, chatgptStatus, maxStatus, appletvStatus, primevideoStatus];
 
         // 显示检测中状态
         btn.disabled = true;
         btn.textContent = '检测中...';
         resultsDiv.style.display = 'block';
 
-        [netflixStatus, disneyStatus, youtubeStatus, chatgptStatus].forEach(el => {
-            el.textContent = '检测中';
-            el.className = 'streaming-status checking';
+        allStatuses.forEach(el => {
+            if (el) {
+                el.textContent = '检测中';
+                el.className = 'streaming-status checking';
+            }
         });
 
         try {
@@ -868,13 +875,18 @@ class App {
             this.updateStreamingStatus(disneyStatus, result.disney_plus);
             this.updateStreamingStatus(youtubeStatus, result.youtube);
             this.updateStreamingStatus(chatgptStatus, result.chatgpt);
+            this.updateStreamingStatus(maxStatus, result.max);
+            this.updateStreamingStatus(appletvStatus, result.apple_tv);
+            this.updateStreamingStatus(primevideoStatus, result.prime_video);
 
             this.showToast('流媒体检测完成', 'success');
         } catch (e) {
             this.showToast('检测失败: ' + e.message, 'error');
-            [netflixStatus, disneyStatus, youtubeStatus, chatgptStatus].forEach(el => {
-                el.textContent = '失败';
-                el.className = 'streaming-status locked';
+            allStatuses.forEach(el => {
+                if (el) {
+                    el.textContent = '失败';
+                    el.className = 'streaming-status locked';
+                }
             });
         } finally {
             btn.disabled = false;

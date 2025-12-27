@@ -386,6 +386,21 @@
                                                     <span class="streaming-name">ChatGPT</span>
                                                     <span class="streaming-status" id="chatgpt-status">-</span>
                                                 </div>
+                                                <div class="streaming-item" id="streaming-max">
+                                                    <span class="streaming-icon">📺</span>
+                                                    <span class="streaming-name">Max</span>
+                                                    <span class="streaming-status" id="max-status">-</span>
+                                                </div>
+                                                <div class="streaming-item" id="streaming-appletv">
+                                                    <span class="streaming-icon">🍎</span>
+                                                    <span class="streaming-name">Apple TV+</span>
+                                                    <span class="streaming-status" id="appletv-status">-</span>
+                                                </div>
+                                                <div class="streaming-item" id="streaming-primevideo">
+                                                    <span class="streaming-icon">🛒</span>
+                                                    <span class="streaming-name">Prime Video</span>
+                                                    <span class="streaming-status" id="primevideo-status">-</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -767,40 +782,67 @@
             <!-- WARP+ Tutorial Modal -->
             <div id="warp-tutorial-modal" class="modal glass hidden">
                 <div class="modal-header">
-                    <h2>📖 WARP+ License Key 获取教程</h2>
+                    <h2>📖 WARP 配置教程</h2>
                     <button class="modal-close">&times;</button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
                     <div class="tutorial-content">
-                        <h4>方法一：通过 1.1.1.1 App 获取</h4>
+                        <h4>方法一：WARP+ 订阅（付费）</h4>
                         <ol style="margin-left:var(--space-md);color:var(--text-secondary);font-size:0.9rem;">
                             <li style="margin-bottom:var(--space-xs)">在手机上下载 <b>1.1.1.1 (Cloudflare WARP)</b> App</li>
-                            <li style="margin-bottom:var(--space-xs)">打开 App，点击右上角菜单 → <b>账户</b></li>
-                            <li style="margin-bottom:var(--space-xs)">点击 <b>按键</b> 查看当前的 License Key</li>
-                            <li style="margin-bottom:var(--space-xs)">如果需要 WARP+ 无限流量，可通过邀请好友获得</li>
+                            <li style="margin-bottom:var(--space-xs)">打开 App → 点击右上角菜单 → <b>账户</b></li>
+                            <li style="margin-bottom:var(--space-xs)">选择 <b>升级到 WARP+</b>，完成订阅（约 $4.99/月）</li>
+                            <li style="margin-bottom:var(--space-xs)">订阅后点击 <b>管理账户</b> → <b>按键</b> 查看 License Key</li>
                         </ol>
 
-                        <h4 style="margin-top:var(--space-lg)">方法二：通过 Telegram Bot 获取</h4>
+                        <h4 style="margin-top:var(--space-lg)">方法二：Cloudflare Zero Trust（推荐，免费）</h4>
+                        <div class="cert-info-box"
+                            style="background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.3);margin-bottom:var(--space-md)">
+                            <p style="color:#10b981;">✨ <b>Zero Trust</b> 提供比普通 WARP 更好的连接质量，每月 50 用户免费</p>
+                        </div>
                         <ol style="margin-left:var(--space-md);color:var(--text-secondary);font-size:0.9rem;">
-                            <li style="margin-bottom:var(--space-xs)">打开 Telegram，搜索 <b>@waborwarp_bot</b></li>
-                            <li style="margin-bottom:var(--space-xs)">发送 <b>/start</b> 启动机器人</li>
-                            <li style="margin-bottom:var(--space-xs)">按提示完成任务即可获得 WARP+ Key</li>
+                            <li style="margin-bottom:var(--space-xs)">访问 <a href="https://one.dash.cloudflare.com/"
+                                    target="_blank" style="color:var(--accent-primary)">Cloudflare Zero Trust 控制台</a>
+                            </li>
+                            <li style="margin-bottom:var(--space-xs)">使用 Cloudflare 账户登录，创建团队（输入团队名称）</li>
+                            <li style="margin-bottom:var(--space-xs)">进入 <b>Settings</b> → <b>WARP Client</b> →
+                                <b>Device enrollment</b>
+                            </li>
+                            <li style="margin-bottom:var(--space-xs)">添加 Enrollment Rule，设置允许的邮箱或域名</li>
+                            <li style="margin-bottom:var(--space-xs)">在手机 1.1.1.1 App 中：<b>设置</b> → <b>账户</b> →
+                                <b>使用其他团队登录</b>
+                            </li>
+                            <li style="margin-bottom:var(--space-xs)">输入团队名称，完成邮箱验证即可使用</li>
                         </ol>
 
-                        <h4 style="margin-top:var(--space-lg)">方法三：购买订阅</h4>
+                        <h4 style="margin-top:var(--space-lg)">方法三：手动导入配置</h4>
+                        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:var(--space-sm)">
+                            如果您已有 WARP WireGuard 配置（如从其他设备导出），可以使用"导入配置"功能：
+                        </p>
                         <ol style="margin-left:var(--space-md);color:var(--text-secondary);font-size:0.9rem;">
-                            <li style="margin-bottom:var(--space-xs)">在 1.1.1.1 App 中订阅 <b>WARP+</b> 服务</li>
-                            <li style="margin-bottom:var(--space-xs)">订阅后在账户页面获取 License Key</li>
+                            <li style="margin-bottom:var(--space-xs)">在 WARP App 中导出 WireGuard 配置</li>
+                            <li style="margin-bottom:var(--space-xs)">提取 PrivateKey、Address (IPv4/IPv6)</li>
+                            <li style="margin-bottom:var(--space-xs)">在本系统中使用 API 导入配置</li>
                         </ol>
 
                         <div class="cert-info-box" style="margin-top:var(--space-lg)">
                             <p>💡 <strong>提示</strong></p>
                             <ul>
-                                <li>License Key 格式类似：<code
+                                <li>WARP+ License Key 格式：<code
                                         style="background:var(--bg-tertiary);padding:0.15rem 0.4rem;border-radius:var(--radius-sm);font-size:0.85rem;">xxxxxxxx-xxxxxxxx-xxxxxxxx</code>
                                 </li>
                                 <li>每个 Key 最多可绑定 5 台设备</li>
-                                <li>升级后流量无限制，速度更快</li>
+                                <li>推荐送流量活动已于 2024/11/1 终止</li>
+                                <li>Zero Trust 每月免费额度：50 用户</li>
+                            </ul>
+                        </div>
+
+                        <div class="cert-info-box"
+                            style="margin-top:var(--space-md);background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3)">
+                            <p style="color:#f59e0b;">⚠️ <strong>注意事项</strong></p>
+                            <ul style="color:#f59e0b;">
+                                <li>Zero Trust 需要在控制台单独配置，不是在 License Key 输入框输入</li>
+                                <li>配置完成后需要在手机 App 中登录团队账户</li>
                             </ul>
                         </div>
                     </div>

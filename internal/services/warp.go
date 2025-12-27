@@ -575,6 +575,9 @@ type StreamingCheckResult struct {
 	DisneyPlus  StreamingStatus `json:"disney_plus"`
 	YouTube     StreamingStatus `json:"youtube"`
 	ChatGPT     StreamingStatus `json:"chatgpt"`
+	Max         StreamingStatus `json:"max"`
+	AppleTV     StreamingStatus `json:"apple_tv"`
+	PrimeVideo  StreamingStatus `json:"prime_video"`
 	CheckedAt   int64           `json:"checked_at"`
 	WarpIP      string          `json:"warp_ip"`
 }
@@ -616,6 +619,15 @@ func (s *WarpService) CheckStreamingUnlock() (*StreamingCheckResult, error) {
 	
 	// Check ChatGPT
 	result.ChatGPT = s.checkChatGPT(client)
+
+	// Check Max (HBO Max)
+	result.Max = s.checkMax(client)
+
+	// Check Apple TV+
+	result.AppleTV = s.checkAppleTV(client)
+
+	// Check Prime Video
+	result.PrimeVideo = s.checkPrimeVideo(client)
 
 	return result, nil
 }
@@ -720,4 +732,79 @@ func (s *WarpService) checkChatGPT(client *http.Client) StreamingStatus {
 	}
 	
 	return StreamingStatus{Unlocked: false, Message: "受限"}
+}
+
+func (s *WarpService) checkMax(client *http.Client) StreamingStatus {
+	// Check Max (formerly HBO Max)
+	req, _ := http.NewRequest("GET", "https://www.max.com/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return StreamingStatus{Unlocked: false, Message: "检测失败"}
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	
+	if strings.Contains(bodyStr, "not available") || strings.Contains(bodyStr, "unavailable") {
+		return StreamingStatus{Unlocked: false, Message: "不支持"}
+	}
+	
+	if resp.StatusCode == 200 {
+		return StreamingStatus{Unlocked: true, Message: "可解锁"}
+	}
+	
+	return StreamingStatus{Unlocked: false, Message: "未知"}
+}
+
+func (s *WarpService) checkAppleTV(client *http.Client) StreamingStatus {
+	// Check Apple TV+
+	req, _ := http.NewRequest("GET", "https://tv.apple.com/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return StreamingStatus{Unlocked: false, Message: "检测失败"}
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	
+	if strings.Contains(bodyStr, "not available") || strings.Contains(bodyStr, "unavailable in your region") {
+		return StreamingStatus{Unlocked: false, Message: "不支持"}
+	}
+	
+	if resp.StatusCode == 200 || resp.StatusCode == 302 {
+		return StreamingStatus{Unlocked: true, Message: "可解锁"}
+	}
+	
+	return StreamingStatus{Unlocked: false, Message: "未知"}
+}
+
+func (s *WarpService) checkPrimeVideo(client *http.Client) StreamingStatus {
+	// Check Amazon Prime Video
+	req, _ := http.NewRequest("GET", "https://www.primevideo.com/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return StreamingStatus{Unlocked: false, Message: "检测失败"}
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	
+	if strings.Contains(bodyStr, "not available") || strings.Contains(bodyStr, "unavailable") {
+		return StreamingStatus{Unlocked: false, Message: "不支持"}
+	}
+	
+	if resp.StatusCode == 200 || resp.StatusCode == 302 {
+		return StreamingStatus{Unlocked: true, Message: "可解锁"}
+	}
+	
+	return StreamingStatus{Unlocked: false, Message: "未知"}
 }
