@@ -762,29 +762,57 @@ func (s *WarpService) checkNetflix(client *http.Client) StreamingStatus {
 		}
 	}
 	
-	return StreamingStatus{Unlocked: false, Message: "不支持"}
+	return StreamingStatus{Unlocked: false, Message: "未知"}
 }
 
 func (s *WarpService) checkDisneyPlus(client *http.Client) StreamingStatus {
-	req, _ := http.NewRequest("GET", "https://www.disneyplus.com/", nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return StreamingStatus{Unlocked: false, Message: "检测失败"}
-	}
-	defer resp.Body.Close()
-	
-	body, _ := io.ReadAll(resp.Body)
-	bodyStr := string(body)
-	
-	// Check for region block indicators
-	if strings.Contains(bodyStr, "unavailable") || strings.Contains(bodyStr, "not available in your region") {
-		return StreamingStatus{Unlocked: false, Message: "不支持"}
+	// Disney+ uses multiple checks for better accuracy
+	urls := []string{
+		"https://www.disneyplus.com/",
+		"https://www.disneyplus.com/movies/encanto/33q7DY1rtHQH",
 	}
 	
-	if resp.StatusCode == 200 {
-		return StreamingStatus{Unlocked: true, Message: "可解锁"}
+	for _, url := range urls {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		
+		body, _ := io.ReadAll(resp.Body)
+		bodyStr := string(body)
+		
+		// Check for region block indicators
+		if strings.Contains(bodyStr, "Sorry, Disney+ is not available in your region") ||
+		   strings.Contains(bodyStr, "not available in your country") ||
+		   strings.Contains(bodyStr, "unavailable in your location") ||
+		   strings.Contains(bodyStr, "error-code-73") ||
+		   strings.Contains(bodyStr, "geo-blocked") {
+			return StreamingStatus{Unlocked: false, Message: "不支持"}
+		}
+		
+		// Check for successful access
+		if resp.StatusCode == 200 && 
+		   (strings.Contains(bodyStr, "disneyplus") || 
+		    strings.Contains(bodyStr, "Disney+") ||
+		    strings.Contains(bodyStr, "Sign Up") ||
+		    strings.Contains(bodyStr, "Log In") ||
+		    strings.Contains(bodyStr, "Start Streaming")) {
+			return StreamingStatus{Unlocked: true, Message: "可解锁"}
+		}
+		
+		// Redirect to regional site usually means available
+		if resp.StatusCode == 302 || resp.StatusCode == 301 {
+			location := resp.Header.Get("Location")
+			if strings.Contains(location, "disneyplus.com") && !strings.Contains(location, "unavailable") {
+				return StreamingStatus{Unlocked: true, Message: "可解锁"}
+			}
+		}
 	}
 	
 	return StreamingStatus{Unlocked: false, Message: "未知"}
@@ -836,25 +864,56 @@ func (s *WarpService) checkChatGPT(client *http.Client) StreamingStatus {
 }
 
 func (s *WarpService) checkMax(client *http.Client) StreamingStatus {
-	// Check Max (formerly HBO Max)
-	req, _ := http.NewRequest("GET", "https://www.max.com/", nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return StreamingStatus{Unlocked: false, Message: "检测失败"}
-	}
-	defer resp.Body.Close()
-	
-	body, _ := io.ReadAll(resp.Body)
-	bodyStr := string(body)
-	
-	if strings.Contains(bodyStr, "not available") || strings.Contains(bodyStr, "unavailable") {
-		return StreamingStatus{Unlocked: false, Message: "不支持"}
+	// Max (formerly HBO Max) is only available in US and Latin America
+	// Check multiple endpoints for better accuracy
+	urls := []string{
+		"https://www.max.com/",
+		"https://www.max.com/api/orchestration/v1/graphql",
 	}
 	
-	if resp.StatusCode == 200 {
-		return StreamingStatus{Unlocked: true, Message: "可解锁"}
+	for _, url := range urls {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		
+		body, _ := io.ReadAll(resp.Body)
+		bodyStr := string(body)
+		
+		// Check for region block indicators
+		if strings.Contains(bodyStr, "not available in your region") ||
+		   strings.Contains(bodyStr, "unavailable in your country") ||
+		   strings.Contains(bodyStr, "geo-restricted") ||
+		   strings.Contains(bodyStr, "Sorry, Max isn't available") ||
+		   strings.Contains(bodyStr, "not yet available") {
+			return StreamingStatus{Unlocked: false, Message: "不支持"}
+		}
+		
+		// Check for successful access indicators
+		if resp.StatusCode == 200 && 
+		   (strings.Contains(bodyStr, "max.com") || 
+		    strings.Contains(bodyStr, "Sign In") ||
+		    strings.Contains(bodyStr, "Start Watching") ||
+		    strings.Contains(bodyStr, "Browse") ||
+		    strings.Contains(bodyStr, "Subscribe")) {
+			return StreamingStatus{Unlocked: true, Message: "可解锁"}
+		}
+		
+		// Check if redirected to a country selector or block page
+		if resp.StatusCode == 302 || resp.StatusCode == 301 {
+			location := resp.Header.Get("Location")
+			if strings.Contains(location, "unavailable") || strings.Contains(location, "geo") {
+				return StreamingStatus{Unlocked: false, Message: "不支持"}
+			}
+			if strings.Contains(location, "max.com") {
+				return StreamingStatus{Unlocked: true, Message: "可解锁"}
+			}
+		}
 	}
 	
 	return StreamingStatus{Unlocked: false, Message: "未知"}
