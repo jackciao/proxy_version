@@ -45,6 +45,7 @@ type WarpStatus struct {
 	AccountType string      `json:"account_type"`
 	IPv4        string      `json:"ipv4"`
 	IPv6        string      `json:"ipv6"`
+	PublicIP    string      `json:"public_ip"`
 	Endpoint    string      `json:"endpoint"`
 	Config      *WarpConfig `json:"config,omitempty"`
 }
@@ -67,9 +68,56 @@ func (s *WarpService) GetStatus() WarpStatus {
 		status.IPv6 = config.IPv6Address
 		status.Endpoint = config.Endpoint
 		status.Config = config
+		
+		// 获取通过 WARP 的实际公网出口 IP
+		status.PublicIP = s.getWarpPublicIP()
 	}
 
 	return status
+}
+
+// getWarpPublicIP fetches the actual public IP when routing through WARP
+func (s *WarpService) getWarpPublicIP() string {
+	// 尝试多个 IP 检测服务
+	services := []string{
+		"https://1.1.1.1/cdn-cgi/trace",
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+	}
+	
+	client := &http.Client{Timeout: 5 * time.Second}
+	
+	for _, url := range services {
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			continue
+		}
+		
+		content := strings.TrimSpace(string(body))
+		
+		// 1.1.1.1/cdn-cgi/trace 返回格式: ip=x.x.x.x
+		if strings.Contains(url, "cdn-cgi/trace") {
+			lines := strings.Split(content, "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "ip=") {
+					return strings.TrimPrefix(line, "ip=")
+				}
+			}
+		} else {
+			// 其他服务直接返回 IP
+			if len(content) > 0 && len(content) < 50 {
+				return content
+			}
+		}
+	}
+	
+	return "获取失败"
 }
 
 // InstallWgcf installs the wgcf tool

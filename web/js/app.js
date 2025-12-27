@@ -754,7 +754,8 @@ class App {
 
             if (s.configured) {
                 statusEl.innerHTML = '<span class="text-success">✓ 已配置</span>';
-                document.getElementById('warp-ipv4').textContent = s.ipv4 || '-';
+                // 显示公网出口 IP（如果有的话），否则显示接口地址
+                document.getElementById('warp-ipv4').textContent = s.public_ip || s.ipv4 || '-';
                 document.getElementById('warp-ipv6').textContent = s.ipv6 ? (s.ipv6.length > 30 ? s.ipv6.substring(0, 30) + '...' : s.ipv6) : '-';
 
                 // 根据账号类型显示不同标签
