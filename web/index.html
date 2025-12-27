@@ -849,48 +849,47 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- WARP Import Modal -->
-        <div id="warp-import-modal" class="modal glass hidden">
-            <div class="modal-header">
-                <h2>📥 导入 WARP 配置</h2>
-                <button class="modal-close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form id="warp-import-form">
-                    <div class="form-group">
-                        <label for="import-private-key">Private Key <span style="color:var(--error)">*</span></label>
-                        <input type="text" id="import-private-key" placeholder="WireGuard 私钥" required>
-                        <span class="form-hint">从 WireGuard 配置文件中获取</span>
-                    </div>
-                    <div class="form-group">
-                        <label for="import-ipv4">IPv4 地址 <span style="color:var(--error)">*</span></label>
-                        <input type="text" id="import-ipv4" placeholder="例如: 172.16.0.2/32" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="import-ipv6">IPv6 地址 (可选)</label>
-                        <input type="text" id="import-ipv6" placeholder="例如: 2606:4700:xxx::xxxx/128">
-                    </div>
-                    <div class="form-group">
-                        <label for="import-endpoint">Endpoint (可选)</label>
-                        <input type="text" id="import-endpoint" placeholder="默认: engage.cloudflareclient.com:2408">
-                    </div>
-
-                    <div class="cert-info-box"
-                        style="margin-bottom:var(--space-lg);background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3)">
-                        <p style="color:#f59e0b;">⚠️ <strong>注意</strong></p>
-                        <ul style="color:#f59e0b;font-size:0.85rem;">
-                            <li>导入的配置无法切换 IP，因为没有账号信息</li>
-                            <li>如果需要切换 IP，请使用"注册免费账号"功能</li>
-                        </ul>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-secondary modal-cancel">取消</button>
-                        <button type="submit" class="btn btn-primary">导入配置</button>
-                    </div>
-                </form>
+            <!-- WARP Import Modal -->
+            <div id="warp-import-modal" class="modal glass hidden">
+                <div class="modal-header">
+                    <h2>📥 导入 WARP 配置</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="warp-import-form">
+                        <div class="form-group">
+                            <label for="import-private-key">Private Key <span
+                                    style="color:var(--error)">*</span></label>
+                            <input type="text" id="import-private-key" placeholder="WireGuard 私钥" required>
+                            <span class="form-hint">从 WireGuard 配置文件中获取</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="import-ipv4">IPv4 地址 <span style="color:var(--error)">*</span></label>
+                            <input type="text" id="import-ipv4" placeholder="例如: 172.16.0.2/32" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="import-ipv6">IPv6 地址 (可选)</label>
+                            <input type="text" id="import-ipv6" placeholder="例如: 2606:4700:xxx::xxxx/128">
+                        </div>
+                        <div class="form-group">
+                            <label for="import-endpoint">Endpoint (可选)</label>
+                            <input type="text" id="import-endpoint" placeholder="默认: engage.cloudflareclient.com:2408">
+                        </div>
+                        <div class="cert-info-box"
+                            style="margin-bottom:var(--space-lg);background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3)">
+                            <p style="color:#f59e0b;">⚠️ <strong>注意</strong></p>
+                            <ul style="color:#f59e0b;font-size:0.85rem;">
+                                <li>导入的配置无法切换 IP，因为没有账号信息</li>
+                                <li>如果需要切换 IP，请使用"注册免费账号"功能</li>
+                            </ul>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary modal-cancel">取消</button>
+                            <button type="submit" class="btn btn-primary">导入配置</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
 
