@@ -236,13 +236,24 @@ func (s *WarpService) callCloudflareRegisterAPI(publicKey string) (*CloudflareRe
 	// Cloudflare WARP API endpoint
 	apiURL := "https://api.cloudflareclient.com/v0a2158/reg"
 
+	// 获取服务器 hostname 作为设备名称
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "VPS-Server"
+	}
+	// 截取前 20 个字符避免过长
+	if len(hostname) > 20 {
+		hostname = hostname[:20]
+	}
+	deviceName := fmt.Sprintf("VPS-%s", hostname)
+
 	// Request body
 	reqBody := map[string]interface{}{
 		"key":        publicKey,
 		"install_id": "",
 		"fcm_token":  "",
 		"tos":        time.Now().Format(time.RFC3339),
-		"model":      "Linux",
+		"model":      deviceName,
 		"type":       "Linux",
 		"locale":     "en_US",
 	}
@@ -443,8 +454,15 @@ func (s *WarpService) GetConfig() (*WarpConfig, error) {
 	return config, nil
 }
 
-// DeleteConfig removes the WARP configuration
+// DeleteConfig removes the WARP configuration and unregisters the device from Cloudflare
 func (s *WarpService) DeleteConfig() error {
+	// 先获取配置以便注销设备
+	config, _ := s.GetConfig()
+	if config != nil && config.DeviceID != "" && config.AccessToken != "" {
+		// 调用 Cloudflare API 注销设备
+		s.unregisterDevice(config.DeviceID, config.AccessToken)
+	}
+
 	_, err := s.db.Exec("DELETE FROM warp_config")
 	if err != nil {
 		return err
@@ -453,6 +471,36 @@ func (s *WarpService) DeleteConfig() error {
 	// Remove config files
 	os.RemoveAll(warpConfigDir)
 	return nil
+}
+
+// unregisterDevice calls Cloudflare API to delete/unregister the device
+func (s *WarpService) unregisterDevice(deviceID, accessToken string) {
+	apiURL := fmt.Sprintf("https://api.cloudflareclient.com/v0a2158/reg/%s", deviceID)
+
+	req, err := http.NewRequest("DELETE", apiURL, nil)
+	if err != nil {
+		fmt.Printf("Warning: failed to create unregister request: %v\n", err)
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("User-Agent", "okhttp/3.12.1")
+	req.Header.Set("CF-Client-Version", "a-6.10-2158")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Warning: failed to unregister device: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 || resp.StatusCode == 204 {
+		fmt.Printf("Device %s successfully unregistered from Cloudflare\n", deviceID)
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("Warning: device unregister returned %d: %s\n", resp.StatusCode, string(body))
+	}
 }
 
 // GenerateSingBoxOutbound generates sing-box WireGuard outbound config for sing-box 1.11+
