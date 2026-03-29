@@ -32,6 +32,14 @@ func main() {
 
 	// Apply middleware
 	r.Use(middleware.CORS())
+	
+	// Server disguise middleware - make responses look like nginx
+	r.Use(func(c *gin.Context) {
+		c.Header("Server", "nginx/1.24.0")
+		c.Header("X-Powered-By", "")
+		c.Writer.Header().Del("X-Powered-By")
+		c.Next()
+	})
 
 	// Static files
 	r.Static("/css", "./web/css")
@@ -42,10 +50,9 @@ func main() {
 	// API routes
 	api := r.Group("/api")
 	{
-		// Auth routes (public)
+		// Auth routes (public - login only)
 		auth := api.Group("/auth")
 		{
-			auth.POST("/register", handlers.Register(db))
 			auth.POST("/login", handlers.Login(db, cfg.JWTSecret))
 			auth.GET("/me", middleware.Auth(cfg.JWTSecret), handlers.GetCurrentUser(db))
 		}
@@ -54,6 +61,9 @@ func main() {
 		protected := api.Group("")
 		protected.Use(middleware.Auth(cfg.JWTSecret))
 		{
+			// User management (registration requires auth)
+			protected.POST("/auth/register", handlers.Register(db))
+			
 			// Nodes
 			nodes := protected.Group("/nodes")
 			{
@@ -77,6 +87,7 @@ func main() {
 				system.GET("/random-port", handlers.GetRandomPort())
 				system.GET("/ips", handlers.GetServerIPs())
 				system.POST("/check-port", handlers.CheckPort())
+				system.GET("/suggest-sni", handlers.GetSuggestedSNI())
 				system.POST("/cores/install", handlers.InstallCore())
 				system.POST("/cores/uninstall", handlers.UninstallCore())
 			}
@@ -89,6 +100,9 @@ func main() {
 				certs.GET("/progress/:domain", handlers.GetCertProgress())
 				certs.DELETE("/:domain", handlers.DeleteCertificate(db))
 			}
+
+			// Camouflage
+			protected.GET("/camouflage/status/:domain", handlers.GetCamouflageStatus())
 
 			// WARP
 			warp := protected.Group("/warp")

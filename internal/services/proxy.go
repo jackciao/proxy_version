@@ -327,7 +327,7 @@ func (s *ProxyService) generateVLESSRealityConfig(domain string, port int, confi
 		config.ShortID = generateShortID()
 	}
 	if config.ServerName == "" {
-		config.ServerName = "www.microsoft.com"
+		config.ServerName = GetSuggestedSNI()
 	}
 
 	result := map[string]interface{}{
@@ -617,8 +617,6 @@ func (s *ProxyService) copyCertsToHost() {
 
 // generateSingBoxConfig generates a sing-box compatible configuration
 func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled bool, db interface{}) (map[string]interface{}, error) {
-	// Debug log
-	fmt.Printf("generateSingBoxConfig called with warpEnabled=%v, db type=%T\n", warpEnabled, db)
 	
 	port := 443
 	if p, ok := config["port"].(float64); ok {
@@ -718,7 +716,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		
 		if security == "reality" {
 			privateKey := ""
-			serverName := "www.microsoft.com"
+			serverName := GetSuggestedSNI()
 			shortId := ""
 			
 			if pk, ok := config["privateKey"].(string); ok {
@@ -947,26 +945,16 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 	// Add WARP outbound if enabled
 	finalOutbound := "direct"
 	if warpEnabled && db != nil {
-		fmt.Printf("WARP enabled, attempting to get outbound config\n")
 		if sqlDB, ok := db.(*sql.DB); ok {
-			fmt.Printf("DB type assertion successful\n")
 			warpService := NewWarpService(sqlDB)
 			warpOutbound, err := warpService.GenerateSingBoxOutbound()
-			if err != nil {
-				fmt.Printf("WARP outbound generation failed: %v\n", err)
-			} else if warpOutbound != nil {
-				fmt.Printf("WARP outbound generated successfully, setting final to warp-out\n")
+			if err == nil && warpOutbound != nil {
 				outbounds = append(outbounds, warpOutbound)
 				finalOutbound = "warp-out"
 			}
-		} else {
-			fmt.Printf("DB type assertion failed, db type is %T\n", db)
 		}
-	} else {
-		fmt.Printf("WARP not enabled or db is nil (warpEnabled=%v, db=%v)\n", warpEnabled, db != nil)
 	}
 	
-	fmt.Printf("Final outbound: %s, total outbounds: %d\n", finalOutbound, len(outbounds))
 	
 	singboxConfig["outbounds"] = outbounds
 	
@@ -1586,3 +1574,417 @@ func (s *ProxyService) generateClientConfig(server string, port int, config map[
 		"settings": config,
 	}
 }
+
+// ===== Reality SNI Smart Suggestion System =====
+
+// SNISuggestion represents a suggested Reality SNI site
+type SNISuggestion struct {
+	Domain      string `json:"domain"`
+	Description string `json:"description"`
+	Latency     int    `json:"latency_ms,omitempty"` // TLS handshake latency in ms
+}
+
+// SNIResult contains suggested SNI sites for the server's region
+type SNIResult struct {
+	Country     string          `json:"country"`
+	CountryCode string          `json:"country_code"`
+	Suggested   []SNISuggestion `json:"suggested"`
+	Best        string          `json:"best"` // Auto-selected best SNI
+}
+
+// cached SNI result to avoid repeated lookups
+var cachedSNI string
+var cachedSNITime time.Time
+
+// GetSuggestedSNI returns the best SNI for this server (cached)
+func GetSuggestedSNI() string {
+	// Return cache if fresh (within 1 hour)
+	if cachedSNI != "" && time.Since(cachedSNITime) < time.Hour {
+		return cachedSNI
+	}
+
+	result := GetSuggestedRealitySNI()
+	if result.Best != "" {
+		cachedSNI = result.Best
+		cachedSNITime = time.Now()
+		return cachedSNI
+	}
+	return "www.apple.com" // ultimate fallback
+}
+
+// GetSuggestedRealitySNI detects server location and returns recommended SNI sites
+func GetSuggestedRealitySNI() SNIResult {
+	result := SNIResult{
+		Country:     "Unknown",
+		CountryCode: "XX",
+	}
+
+	// Detect server geolocation
+	countryCode := detectServerCountry()
+	result.CountryCode = countryCode
+
+	// Get country-specific SNI list
+	sites := getSNIListForCountry(countryCode)
+	result.Country = getCountryName(countryCode)
+
+	// Test each site's TLS connectivity and latency
+	type testResult struct {
+		domain  string
+		latency int
+		ok      bool
+	}
+
+	ch := make(chan testResult, len(sites))
+	for _, site := range sites {
+		go func(s SNISuggestion) {
+			latency, ok := testTLSHandshake(s.Domain)
+			ch <- testResult{domain: s.Domain, latency: latency, ok: ok}
+		}(site)
+	}
+
+	// Collect results with timeout
+	timeout := time.After(8 * time.Second)
+	tested := make(map[string]testResult)
+	for i := 0; i < len(sites); i++ {
+		select {
+		case r := <-ch:
+			tested[r.domain] = r
+		case <-timeout:
+			break
+		}
+	}
+
+	// Build result with latency info
+	bestLatency := 999999
+	for i := range sites {
+		if tr, ok := tested[sites[i].Domain]; ok {
+			if tr.ok {
+				sites[i].Latency = tr.latency
+				if tr.latency < bestLatency {
+					bestLatency = tr.latency
+					result.Best = sites[i].Domain
+				}
+			}
+		}
+	}
+	result.Suggested = sites
+
+	// Fallback if no site responded
+	if result.Best == "" && len(sites) > 0 {
+		result.Best = sites[0].Domain
+	}
+
+	return result
+}
+
+// detectServerCountry returns the ISO country code of the server
+func detectServerCountry() string {
+	apis := []struct {
+		url   string
+		parse func([]byte) string
+	}{
+		{
+			url: "http://ip-api.com/json/?fields=countryCode",
+			parse: func(body []byte) string {
+				var resp struct {
+					CountryCode string `json:"countryCode"`
+				}
+				if json.Unmarshal(body, &resp) == nil && resp.CountryCode != "" {
+					return resp.CountryCode
+				}
+				return ""
+			},
+		},
+		{
+			url: "https://ipapi.co/country_code/",
+			parse: func(body []byte) string {
+				code := strings.TrimSpace(string(body))
+				if len(code) == 2 {
+					return strings.ToUpper(code)
+				}
+				return ""
+			},
+		},
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, api := range apis {
+		resp, err := client.Get(api.url)
+		if err != nil {
+			continue
+		}
+		body := make([]byte, 256)
+		n, _ := resp.Body.Read(body)
+		resp.Body.Close()
+		if n > 0 {
+			code := api.parse(body[:n])
+			if code != "" {
+				return code
+			}
+		}
+	}
+	return "US" // default fallback
+}
+
+// testTLSHandshake tests TLS 1.3 connectivity to a domain and returns latency in ms
+func testTLSHandshake(domain string) (int, bool) {
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", domain+":443", 5*time.Second)
+	if err != nil {
+		return 0, false
+	}
+	defer conn.Close()
+	latency := int(time.Since(start).Milliseconds())
+	return latency, true
+}
+
+// getSNIListForCountry returns recommended SNI sites for a country
+// All sites MUST:
+// 1. Support TLS 1.3 + H2
+// 2. Be accessible from mainland China (not blocked by GFW)
+// 3. Be major, legitimate websites in that region (for realistic traffic patterns)
+func getSNIListForCountry(countryCode string) []SNISuggestion {
+	countryMap := map[string][]SNISuggestion{
+		// United States
+		"US": {
+			{Domain: "www.tesla.com", Description: "Tesla Motors"},
+			{Domain: "www.apple.com", Description: "Apple Inc."},
+			{Domain: "www.amazon.com", Description: "Amazon"},
+			{Domain: "www.microsoft.com", Description: "Microsoft"},
+			{Domain: "www.ups.com", Description: "UPS Shipping"},
+			{Domain: "www.target.com", Description: "Target Retail"},
+		},
+		// Japan
+		"JP": {
+			{Domain: "www.rakuten.co.jp", Description: "Rakuten"},
+			{Domain: "www.toyota.co.jp", Description: "Toyota Japan"},
+			{Domain: "www.sony.jp", Description: "Sony Japan"},
+			{Domain: "www.nintendo.co.jp", Description: "Nintendo Japan"},
+			{Domain: "www.honda.co.jp", Description: "Honda Japan"},
+			{Domain: "www.panasonic.jp", Description: "Panasonic Japan"},
+		},
+		// South Korea
+		"KR": {
+			{Domain: "www.samsung.com", Description: "Samsung"},
+			{Domain: "www.hyundai.com", Description: "Hyundai Motor"},
+			{Domain: "www.lge.co.kr", Description: "LG Electronics"},
+			{Domain: "www.sk.com", Description: "SK Group"},
+			{Domain: "www.asiana.com", Description: "Asiana Airlines"},
+		},
+		// Singapore
+		"SG": {
+			{Domain: "www.dbs.com.sg", Description: "DBS Bank"},
+			{Domain: "www.singaporeair.com", Description: "Singapore Airlines"},
+			{Domain: "www.grab.com", Description: "Grab"},
+			{Domain: "www.ocbc.com", Description: "OCBC Bank"},
+			{Domain: "www.capitaland.com", Description: "CapitaLand"},
+		},
+		// Hong Kong
+		"HK": {
+			{Domain: "www.hsbc.com.hk", Description: "HSBC Hong Kong"},
+			{Domain: "www.cathaypacific.com", Description: "Cathay Pacific"},
+			{Domain: "www.hkt.com", Description: "HKT Telecom"},
+			{Domain: "www.swireproperties.com", Description: "Swire Properties"},
+			{Domain: "www.bochk.com", Description: "Bank of China HK"},
+		},
+		// Taiwan
+		"TW": {
+			{Domain: "www.asus.com", Description: "ASUS"},
+			{Domain: "www.acer.com", Description: "Acer"},
+			{Domain: "www.evaair.com", Description: "EVA Air"},
+			{Domain: "www.tsmc.com", Description: "TSMC"},
+			{Domain: "www.cht.com.tw", Description: "Chunghwa Telecom"},
+		},
+		// Macau
+		"MO": {
+			{Domain: "www.macautourism.gov.mo", Description: "Macau Tourism"},
+			{Domain: "www.apple.com", Description: "Apple"},
+			{Domain: "www.microsoft.com", Description: "Microsoft"},
+		},
+		// India
+		"IN": {
+			{Domain: "www.tatamotors.com", Description: "Tata Motors"},
+			{Domain: "www.infosys.com", Description: "Infosys"},
+			{Domain: "www.wipro.com", Description: "Wipro"},
+			{Domain: "www.reliancedigital.in", Description: "Reliance Digital"},
+			{Domain: "www.airtel.in", Description: "Airtel India"},
+		},
+		// Malaysia
+		"MY": {
+			{Domain: "www.maybank.com", Description: "Maybank"},
+			{Domain: "www.airasia.com", Description: "AirAsia"},
+			{Domain: "www.petronas.com", Description: "Petronas"},
+			{Domain: "www.tm.com.my", Description: "Telekom Malaysia"},
+		},
+		// Indonesia
+		"ID": {
+			{Domain: "www.garuda-indonesia.com", Description: "Garuda Indonesia"},
+			{Domain: "www.telkom.co.id", Description: "Telkom Indonesia"},
+			{Domain: "www.bca.co.id", Description: "Bank BCA"},
+			{Domain: "www.pertamina.com", Description: "Pertamina"},
+		},
+		// Philippines
+		"PH": {
+			{Domain: "www.globe.com.ph", Description: "Globe Telecom"},
+			{Domain: "www.bpi.com.ph", Description: "Bank of PI"},
+			{Domain: "www.cebuair.com", Description: "Cebu Pacific"},
+			{Domain: "www.apple.com", Description: "Apple"},
+		},
+		// Germany
+		"DE": {
+			{Domain: "www.bmw.com", Description: "BMW"},
+			{Domain: "www.siemens.com", Description: "Siemens"},
+			{Domain: "www.mercedes-benz.com", Description: "Mercedes-Benz"},
+			{Domain: "www.sap.com", Description: "SAP"},
+			{Domain: "www.bosch.com", Description: "Bosch"},
+		},
+		// France
+		"FR": {
+			{Domain: "www.airfrance.com", Description: "Air France"},
+			{Domain: "www.renault.fr", Description: "Renault"},
+			{Domain: "www.orange.fr", Description: "Orange Telecom"},
+			{Domain: "www.bnpparibas.com", Description: "BNP Paribas"},
+			{Domain: "www.loreal.com", Description: "L'Oréal"},
+		},
+		// United Kingdom
+		"GB": {
+			{Domain: "www.bbc.co.uk", Description: "BBC"},
+			{Domain: "www.barclays.co.uk", Description: "Barclays Bank"},
+			{Domain: "www.rolls-royce.com", Description: "Rolls-Royce"},
+			{Domain: "www.bp.com", Description: "BP"},
+			{Domain: "www.bt.com", Description: "BT Group"},
+		},
+		// Canada
+		"CA": {
+			{Domain: "www.shopify.com", Description: "Shopify"},
+			{Domain: "www.td.com", Description: "TD Bank"},
+			{Domain: "www.bombardier.com", Description: "Bombardier"},
+			{Domain: "www.rbc.com", Description: "Royal Bank of Canada"},
+		},
+		// Australia
+		"AU": {
+			{Domain: "www.qantas.com", Description: "Qantas Airways"},
+			{Domain: "www.commbank.com.au", Description: "Commonwealth Bank"},
+			{Domain: "www.telstra.com.au", Description: "Telstra"},
+			{Domain: "www.bhp.com", Description: "BHP Mining"},
+		},
+		// Argentina
+		"AR": {
+			{Domain: "www.mercadolibre.com.ar", Description: "Mercado Libre"},
+			{Domain: "www.aerolineas.com.ar", Description: "Aerolíneas Argentinas"},
+			{Domain: "www.apple.com", Description: "Apple"},
+			{Domain: "www.microsoft.com", Description: "Microsoft"},
+		},
+		// Turkey
+		"TR": {
+			{Domain: "www.turkishairlines.com", Description: "Turkish Airlines"},
+			{Domain: "www.garanti.com.tr", Description: "Garanti Bank"},
+			{Domain: "www.apple.com", Description: "Apple"},
+			{Domain: "www.microsoft.com", Description: "Microsoft"},
+		},
+		// Mexico
+		"MX": {
+			{Domain: "www.telmex.com", Description: "Telmex"},
+			{Domain: "www.aeromexico.com", Description: "Aeroméxico"},
+			{Domain: "www.apple.com", Description: "Apple"},
+			{Domain: "www.microsoft.com", Description: "Microsoft"},
+		},
+		// Netherlands
+		"NL": {
+			{Domain: "www.ing.com", Description: "ING Bank"},
+			{Domain: "www.philips.com", Description: "Philips"},
+			{Domain: "www.klm.com", Description: "KLM Airlines"},
+			{Domain: "www.shell.com", Description: "Shell"},
+		},
+		// Russia
+		"RU": {
+			{Domain: "www.apple.com", Description: "Apple"},
+			{Domain: "www.microsoft.com", Description: "Microsoft"},
+			{Domain: "www.samsung.com", Description: "Samsung"},
+		},
+		// Brazil
+		"BR": {
+			{Domain: "www.embraer.com", Description: "Embraer"},
+			{Domain: "www.apple.com", Description: "Apple"},
+			{Domain: "www.microsoft.com", Description: "Microsoft"},
+		},
+		// Thailand
+		"TH": {
+			{Domain: "www.thaiairways.com", Description: "Thai Airways"},
+			{Domain: "www.ais.th", Description: "AIS Telecom"},
+			{Domain: "www.apple.com", Description: "Apple"},
+		},
+		// Vietnam
+		"VN": {
+			{Domain: "www.vietnamairlines.com", Description: "Vietnam Airlines"},
+			{Domain: "www.vietcombank.com.vn", Description: "Vietcombank"},
+			{Domain: "www.apple.com", Description: "Apple"},
+		},
+		// UAE
+		"AE": {
+			{Domain: "www.emirates.com", Description: "Emirates Airlines"},
+			{Domain: "www.etisalat.ae", Description: "Etisalat"},
+			{Domain: "www.apple.com", Description: "Apple"},
+		},
+		// Italy
+		"IT": {
+			{Domain: "www.ferrari.com", Description: "Ferrari"},
+			{Domain: "www.alitalia.com", Description: "Alitalia"},
+			{Domain: "www.gucci.com", Description: "Gucci"},
+		},
+		// Spain
+		"ES": {
+			{Domain: "www.iberia.com", Description: "Iberia Airlines"},
+			{Domain: "www.zara.com", Description: "Zara"},
+			{Domain: "www.apple.com", Description: "Apple"},
+		},
+		// Switzerland
+		"CH": {
+			{Domain: "www.nestle.com", Description: "Nestlé"},
+			{Domain: "www.ubs.com", Description: "UBS Bank"},
+			{Domain: "www.swiss.com", Description: "Swiss Airlines"},
+		},
+		// Sweden
+		"SE": {
+			{Domain: "www.ikea.com", Description: "IKEA"},
+			{Domain: "www.ericsson.com", Description: "Ericsson"},
+			{Domain: "www.volvo.com", Description: "Volvo"},
+		},
+	}
+
+	// Default / fallback list (global major brands accessible from China)
+	defaultSites := []SNISuggestion{
+		{Domain: "www.apple.com", Description: "Apple Inc."},
+		{Domain: "www.microsoft.com", Description: "Microsoft"},
+		{Domain: "www.samsung.com", Description: "Samsung"},
+		{Domain: "www.tesla.com", Description: "Tesla Motors"},
+		{Domain: "www.ups.com", Description: "UPS Shipping"},
+		{Domain: "www.bmw.com", Description: "BMW"},
+	}
+
+	if sites, ok := countryMap[countryCode]; ok {
+		return sites
+	}
+	return defaultSites
+}
+
+// getCountryName returns human-readable country name
+func getCountryName(code string) string {
+	names := map[string]string{
+		"US": "United States", "JP": "Japan", "KR": "South Korea",
+		"SG": "Singapore", "HK": "Hong Kong", "TW": "Taiwan",
+		"MO": "Macau", "IN": "India", "MY": "Malaysia",
+		"ID": "Indonesia", "PH": "Philippines", "DE": "Germany",
+		"FR": "France", "GB": "United Kingdom", "CA": "Canada",
+		"AU": "Australia", "AR": "Argentina", "TR": "Turkey",
+		"MX": "Mexico", "NL": "Netherlands", "RU": "Russia",
+		"BR": "Brazil", "TH": "Thailand", "VN": "Vietnam",
+		"AE": "UAE", "IT": "Italy", "ES": "Spain",
+		"CH": "Switzerland", "SE": "Sweden",
+	}
+	if name, ok := names[code]; ok {
+		return name
+	}
+	return "Unknown"
+}
+

@@ -40,6 +40,7 @@ const API = {
     getRandomPort() { return this.get('/system/random-port') },
     getServerIPs() { return this.get('/system/ips') },
     checkPort(port, ip = '') { return this.post('/system/check-port', { port, ip }) },
+    getSuggestedSNI() { return this.get('/system/suggest-sni') },
     installCore(c) { return this.post('/system/cores/install', { core: c }) },
     uninstallCore(c) { return this.post('/system/cores/uninstall', { core: c }) },
     // Certificates
@@ -47,6 +48,8 @@ const API = {
     applyCertificate(d) { return this.post('/certificates/apply', d) },
     getCertProgress(domain) { return this.get(`/certificates/progress/${encodeURIComponent(domain)}`) },
     deleteCertificate(domain) { return this.delete(`/certificates/${encodeURIComponent(domain)}`) },
+    // Camouflage
+    getCamouflageStatus(domain) { return this.get(`/camouflage/status/${encodeURIComponent(domain)}`) },
     // WARP
     getWarpStatus() { return this.get('/warp/status') },
     registerWarp() { return this.post('/warp/register', {}) },

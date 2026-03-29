@@ -136,6 +136,14 @@ func CheckPort() gin.HandlerFunc {
 	}
 }
 
+// GetSuggestedSNI returns recommended Reality SNI sites based on server location
+func GetSuggestedSNI() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		result := services.GetSuggestedRealitySNI()
+		c.JSON(http.StatusOK, result)
+	}
+}
+
 
 func ListCertificates(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -268,10 +276,17 @@ func ApplyCertificate(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Auto-deploy camouflage site (already done in certificate service)
+		// Check camouflage status
+		camoService := services.NewCamouflageService()
+		camoStatus := camoService.GetStatus(req.Domain)
+
 		c.JSON(http.StatusOK, gin.H{
-			"message":   "Certificate applied successfully",
-			"cert_path": certPath,
-			"key_path":  keyPath,
+			"message":             "Certificate applied successfully",
+			"cert_path":           certPath,
+			"key_path":            keyPath,
+			"camouflage_deployed": camoStatus.Deployed,
+			"camouflage_url":      camoStatus.URL,
 		})
 	}
 }
@@ -298,5 +313,20 @@ func GetCertProgress() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, progress)
+	}
+}
+
+// GetCamouflageStatus returns the camouflage site deployment status
+func GetCamouflageStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		domain := c.Param("domain")
+		if domain == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "域名不能为空"})
+			return
+		}
+
+		camoService := services.NewCamouflageService()
+		status := camoService.GetStatus(domain)
+		c.JSON(http.StatusOK, status)
 	}
 }

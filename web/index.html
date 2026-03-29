@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proxy Version - 代理节点管理平台</title>
-    <meta name="description" content="现代化的代理节点一键部署与管理平台">
+    <title>CloudBox</title>
+    <meta name="description" content="Secure private cloud storage">
     <link rel="stylesheet" href="/css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,7 @@
         <!-- Loading screen -->
         <div id="loading" class="loading-screen">
             <div class="loader"></div>
-            <p>加载中...</p>
+            <p>Loading...</p>
         </div>
 
         <!-- Auth pages -->
@@ -27,26 +27,24 @@
                     <div class="logo">
                         <svg viewBox="0 0 24 24" width="48" height="48">
                             <path fill="currentColor"
-                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+                                d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
                         </svg>
                     </div>
-                    <h1>Proxy Version</h1>
-                    <p class="subtitle">代理节点管理平台</p>
+                    <h1>CloudBox</h1>
                 </div>
 
                 <!-- Login Form -->
                 <form id="login-form" class="auth-form">
-                    <h2>登录</h2>
+                    <h2>Sign In</h2>
                     <div class="form-group">
-                        <label for="login-username">用户名</label>
-                        <input type="text" id="login-username" placeholder="请输入用户名" required>
+                        <label for="login-username">Username</label>
+                        <input type="text" id="login-username" placeholder="Enter username" required>
                     </div>
                     <div class="form-group">
-                        <label for="login-password">密码</label>
-                        <input type="password" id="login-password" placeholder="请输入密码" required>
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" placeholder="Enter password" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-block">登录</button>
-                    <p class="auth-hint">请在服务器终端运行 <code>proxy_version</code> 命令创建用户</p>
+                    <button type="submit" class="btn btn-primary btn-block">Sign In</button>
                 </form>
             </div>
         </div>
@@ -67,10 +65,10 @@
                     <div class="logo-small">
                         <svg viewBox="0 0 24 24" width="32" height="32">
                             <path fill="currentColor"
-                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+                                d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
                         </svg>
                     </div>
-                    <span class="brand-name">Proxy Version</span>
+                    <span class="brand-name">CloudBox</span>
                 </div>
                 <nav class="sidebar-nav">
                     <a href="#dashboard" class="nav-item active" data-page="dashboard">
@@ -701,8 +699,12 @@
                         <div id="edit-reality-group" style="display:none;">
                             <div class="form-group">
                                 <label for="edit-config-servername">伪装站点 (SNI)</label>
-                                <input type="text" id="edit-config-servername" value="www.microsoft.com">
-                                <small class="text-muted">建议使用大型网站域名，需支持 TLS 1.3</small>
+                                <div class="input-with-btn">
+                                    <input type="text" id="edit-config-servername" value="www.microsoft.com">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="app.suggestSNI()">推荐</button>
+                                </div>
+                                <div id="sni-suggestions" style="display:none;margin-top:var(--space-sm);"></div>
+                                <small class="text-muted">根据服务器地区自动推荐，需支持 TLS 1.3</small>
                             </div>
                             <div class="form-group">
                                 <label for="edit-config-publickey">公钥 (PublicKey)</label>

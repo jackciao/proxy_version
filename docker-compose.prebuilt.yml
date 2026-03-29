@@ -21,6 +21,8 @@ services:
       - ./mock_sys/root/.acme.sh:/root/.acme.sh
       # Mount host /proc for nsenter to access host network namespace (multi-IP detection)
       - /proc:/host/proc:ro
+      # Mount 1Panel OpenResty directories for camouflage site deployment
+      - /opt/1panel/apps/openresty:/opt/1panel/apps/openresty
     environment:
       - TZ=Asia/Shanghai
       - PORT=8080

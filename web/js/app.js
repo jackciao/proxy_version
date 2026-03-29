@@ -430,7 +430,7 @@ class App {
         // Reality config
         if (isReality) {
             document.getElementById('edit-reality-group').style.display = 'block';
-            document.getElementById('edit-config-servername').value = config.serverName || 'www.microsoft.com';
+            document.getElementById('edit-config-servername').value = config.serverName || '';
             document.getElementById('edit-config-publickey').value = config.publicKey || '';
             document.getElementById('edit-config-shortid').value = config.shortId || '';
         }
@@ -495,7 +495,7 @@ class App {
 
         // Reality config
         if (isReality) {
-            config.serverName = document.getElementById('edit-config-servername').value || 'www.microsoft.com';
+            config.serverName = document.getElementById('edit-config-servername').value || '';
             const pk = document.getElementById('edit-config-publickey').value;
             const sid = document.getElementById('edit-config-shortid').value;
             if (pk) config.publicKey = pk;
@@ -662,6 +662,8 @@ class App {
                 return
             }
             c.innerHTML = `<div class="certs-grid">${this.certificates.map(ct => this.renderCertCard(ct)).join('')}</div>`;
+            // Check camouflage status for each certificate
+            this.certificates.forEach(ct => this.checkCamouflageStatus(ct.domain));
         } catch {
             c.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'
         }
@@ -670,14 +672,12 @@ class App {
     renderCertCard(ct) {
         const expiresStr = ct.expires_at ? new Date(ct.expires_at).toLocaleDateString('zh-CN') : '-';
         const renewStr = ct.next_renew_at ? new Date(ct.next_renew_at).toLocaleDateString('zh-CN') + ' (自动)' : '自动续签 (到期前60天)';
-        const acmePath = ct.acme_path || `/root/.acme.sh/${ct.domain}_ecc`;
-        const acmeCertPath = `${acmePath}/${ct.domain}.cer`;
-        const acmeKeyPath = `${acmePath}/${ct.domain}.key`;
+        const domainEsc = this.escapeHtml(ct.domain);
 
         return `<div class="node-card cert-card">
             <div class="node-header">
-                <span class="node-name">${this.escapeHtml(ct.domain)}</span>
-                <button class="btn btn-danger btn-sm" onclick="app.deleteCertificate('${this.escapeHtml(ct.domain)}')">删除</button>
+                <span class="node-name">${domainEsc}</span>
+                <button class="btn btn-danger btn-sm" onclick="app.deleteCertificate('${domainEsc}')">删除</button>
             </div>
             <div class="node-info">
                 <div class="node-info-row">
@@ -690,25 +690,41 @@ class App {
                 </div>
             </div>
             <div class="cert-paths" style="margin-top:var(--space-md);padding-top:var(--space-md);border-top:1px solid var(--border-color)">
-                <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">📂 使用路径 (推荐用于伪装站点)</div>
+                <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">📂 证书路径</div>
                 <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">
                     <div>证书: ${ct.cert_path}</div>
                     <div>私钥: ${ct.key_path}</div>
                 </div>
-                <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:var(--space-md);margin-bottom:var(--space-sm)">📂 原始路径 (acme.sh 源文件)</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">
-                    <div>证书: ${acmeCertPath}</div>
-                    <div>私钥: ${acmeKeyPath}</div>
-                </div>
             </div>
-            <div class="cert-warning" style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm)">
-                <div style="font-size:0.8rem;color:#f59e0b">⚠️ 为提升节点抗检测能力，请配置伪装站点</div>
-                <div style="margin-top:var(--space-xs);font-size:0.75rem">
-                    <a href="https://1panel.cn/docs/installation/online_installation/" target="_blank" style="color:var(--accent-primary);margin-right:var(--space-md)">📖 1Panel 教程</a>
-                    <a href="https://www.bt.cn/new/index.html" target="_blank" style="color:var(--accent-primary)">📖 宝塔面板 教程</a>
+            <div class="cert-camouflage" id="camo-status-${domainEsc}" style="margin-top:var(--space-md);padding:var(--space-sm);background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:var(--radius-sm)">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                    <span style="font-size:0.8rem;color:var(--text-secondary)">🎭 伪装站</span>
+                    <span style="font-size:0.75rem;color:var(--text-muted)" id="camo-label-${domainEsc}">检测中...</span>
                 </div>
             </div>
         </div>`;
+    }
+
+    async checkCamouflageStatus(domain) {
+        try {
+            const status = await API.getCamouflageStatus(domain);
+            const label = document.getElementById('camo-label-' + domain);
+            const container = document.getElementById('camo-status-' + domain);
+            if (!label || !container) return;
+
+            if (status.deployed) {
+                container.style.background = 'rgba(16,185,129,0.08)';
+                container.style.borderColor = 'rgba(16,185,129,0.2)';
+                label.innerHTML = `<a href="${status.url}" target="_blank" style="color:#10b981;font-weight:500">✅ 已部署 ↗</a>`;
+            } else {
+                container.style.background = 'rgba(245,158,11,0.08)';
+                container.style.borderColor = 'rgba(245,158,11,0.2)';
+                label.innerHTML = '<span style="color:#f59e0b">⚠️ 未部署</span>';
+            }
+        } catch(e) {
+            const label = document.getElementById('camo-label-' + domain);
+            if (label) label.textContent = '-';
+        }
     }
 
     async deleteCertificate(domain) {
@@ -1126,7 +1142,7 @@ class App {
         submitBtn.disabled = true;
         submitBtn.textContent = '申请中...';
         progressFill.style.width = '0%';
-        progressStep.textContent = '步骤 1/5';
+        progressStep.textContent = '步骤 1/6';
         progressName.textContent = '正在准备...';
 
         // 启动进度轮询
@@ -1167,9 +1183,9 @@ class App {
             // 申请成功
             clearInterval(pollInterval);
             progressFill.style.width = '100%';
-            progressStep.textContent = '步骤 5/5';
-            progressName.textContent = '✓ 证书申请成功！';
-            this.showToast('证书申请成功！将自动续签', 'success');
+            progressStep.textContent = '步骤 6/6';
+            progressName.textContent = '✓ 证书申请成功，伪装站已部署！';
+            this.showToast('证书申请成功！伪装站已自动部署', 'success');
 
             // 延迟关闭模态框
             setTimeout(() => {
@@ -1267,6 +1283,31 @@ class App {
         const suffix = Math.random().toString(36).substring(2, 6);
         const name = prefixes[Math.floor(Math.random() * prefixes.length)] + '_' + suffix;
         document.getElementById('edit-config-servicename').value = name;
+    }
+
+    async suggestSNI() {
+        const container = document.getElementById('sni-suggestions');
+        if (!container) return;
+        container.style.display = 'block';
+        container.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;padding:var(--space-sm);">正在检测服务器地区并测试延迟...</div>';
+        try {
+            const result = await API.getSuggestedSNI();
+            let html = `<div style="font-size:0.8rem;color:var(--accent-primary);margin-bottom:var(--space-xs);">📍 ${result.country} (${result.country_code})</div>`;
+            html += '<div style="display:flex;flex-wrap:wrap;gap:var(--space-xs);">';
+            result.suggested.forEach(s => {
+                const isBest = s.domain === result.best;
+                const latencyStr = s.latency_ms ? ` (${s.latency_ms}ms)` : '';
+                html += `<button type="button" class="btn btn-sm ${isBest ? 'btn-primary' : 'btn-secondary'}" style="font-size:0.75rem;" onclick="document.getElementById('edit-config-servername').value='${s.domain}';document.getElementById('sni-suggestions').style.display='none';" title="${s.description}${latencyStr}">${s.domain}${isBest ? ' ⭐' : ''}</button>`;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+            // Auto-fill best
+            if (result.best) {
+                document.getElementById('edit-config-servername').value = result.best;
+            }
+        } catch (e) {
+            container.innerHTML = `<div style="color:var(--error);font-size:0.85rem;">检测失败: ${e.message}</div>`;
+        }
     }
 }
 

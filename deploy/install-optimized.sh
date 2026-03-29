@@ -65,6 +65,8 @@ echo -e "${CYAN}[4/6] 创建目录...${NC}"
 mkdir -p /etc/v2ray-agent/{nodes,tls,sing-box}
 mkdir -p /root/.acme.sh
 mkdir -p "${INSTALL_DIR}/data"
+# Ensure 1Panel OpenResty directory exists for volume mount
+mkdir -p /opt/1panel/apps/openresty
 
 # 5. 生成密钥
 echo -e "${CYAN}[5/6] 配置环境...${NC}"
