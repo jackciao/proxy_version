@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/curve25519"
@@ -77,5 +78,25 @@ func TestValidateCamouflageDomainRejectsUnsafeNames(t *testing.T) {
 	}
 	if err := validateCamouflageDomain("example.com"); err != nil {
 		t.Fatalf("valid domain rejected: %v", err)
+	}
+}
+
+func TestInjectMediaItemsRendersRealPostersAndRemovesMockScript(t *testing.T) {
+	items := []mediaItem{{
+		Title:  "Example Show",
+		Year:   "2024",
+		Rating: "8.8",
+		Poster: "https://static.tvmaze.com/uploads/images/original_untouched/1/1.jpg",
+	}}
+
+	page := injectMediaItems(streamVaultIndexHTML, items)
+	if !strings.Contains(page, "Example Show") {
+		t.Fatal("rendered page does not contain media title")
+	}
+	if !strings.Contains(page, `<img src="https://static.tvmaze.com/uploads/images/original_untouched/1/1.jpg"`) {
+		t.Fatal("rendered page does not contain poster image")
+	}
+	if strings.Contains(page, "Generate mock content cards") || strings.Contains(page, "Midnight Protocol") {
+		t.Fatal("mock content script was not removed")
 	}
 }

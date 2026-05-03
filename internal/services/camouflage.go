@@ -3,10 +3,13 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"html"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // CamouflageService manages the StreamVault disguise site via 1Panel OpenResty
@@ -22,6 +25,25 @@ type CamouflageService struct {
 type dockerMount struct {
 	Source      string `json:"Source"`
 	Destination string `json:"Destination"`
+}
+
+type mediaItem struct {
+	Title  string
+	Year   string
+	Rating string
+	Poster string
+}
+
+type tvMazeShow struct {
+	Name      string `json:"name"`
+	Premiered string `json:"premiered"`
+	Rating    struct {
+		Average *float64 `json:"average"`
+	} `json:"rating"`
+	Image *struct {
+		Medium   string `json:"medium"`
+		Original string `json:"original"`
+	} `json:"image"`
 }
 
 // CamouflageStatus represents the deployment status
@@ -193,8 +215,13 @@ func (s *CamouflageService) createSiteDir(domain string) error {
 func (s *CamouflageService) deploySiteHTML(domain string) error {
 	siteRoot := s.siteRootHostPath(domain)
 
+	indexHTML := streamVaultIndexHTML
+	if items, err := fetchPublicMediaItems(); err == nil && len(items) > 0 {
+		indexHTML = injectMediaItems(indexHTML, items)
+	}
+
 	// Write index.html
-	if err := os.WriteFile(filepath.Join(siteRoot, "index.html"), []byte(streamVaultIndexHTML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(siteRoot, "index.html"), []byte(indexHTML), 0644); err != nil {
 		return err
 	}
 
@@ -542,6 +569,99 @@ func (s *CamouflageService) containerPathFor(hostPath, fallback string) string {
 		return filepath.ToSlash(filepath.Join("/www", rel))
 	}
 	return fallback
+}
+
+func fetchPublicMediaItems() ([]mediaItem, error) {
+	client := &http.Client{Timeout: 12 * time.Second}
+	request, err := http.NewRequest(http.MethodGet, "https://api.tvmaze.com/shows?page=0", nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("User-Agent", "Mozilla/5.0 (compatible; StreamVault/1.0)")
+	request.Header.Set("Accept", "application/json")
+
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("影视数据源返回状态码 %d", response.StatusCode)
+	}
+
+	var shows []tvMazeShow
+	if err := json.NewDecoder(response.Body).Decode(&shows); err != nil {
+		return nil, err
+	}
+
+	items := make([]mediaItem, 0, 12)
+	for _, show := range shows {
+		if show.Name == "" || show.Image == nil || show.Rating.Average == nil {
+			continue
+		}
+		poster := show.Image.Original
+		if poster == "" {
+			poster = show.Image.Medium
+		}
+		if poster == "" {
+			continue
+		}
+		year := ""
+		if len(show.Premiered) >= 4 {
+			year = show.Premiered[:4]
+		}
+		items = append(items, mediaItem{
+			Title:  show.Name,
+			Year:   year,
+			Rating: fmt.Sprintf("%.1f", *show.Rating.Average),
+			Poster: poster,
+		})
+		if len(items) >= 12 {
+			break
+		}
+	}
+	return items, nil
+}
+
+func injectMediaItems(page string, items []mediaItem) string {
+	cards := renderMediaCards(items)
+	if cards == "" {
+		return page
+	}
+
+	page = strings.Replace(page, `<div class="content-grid" id="content-grid"></div>`, `<div class="content-grid" id="content-grid">`+cards+`</div>`, 1)
+	start := strings.Index(page, "    <script>\n    // Generate mock content cards")
+	end := strings.Index(page, "    </script>\n</body>")
+	if start != -1 && end != -1 && end > start {
+		page = page[:start] + page[end+len("    </script>\n"):]
+	}
+	return page
+}
+
+func renderMediaCards(items []mediaItem) string {
+	var builder strings.Builder
+	for _, item := range items {
+		if item.Title == "" || item.Poster == "" {
+			continue
+		}
+		builder.WriteString(`<div class="content-card" onclick="window.location.href='/login.html'">`)
+		builder.WriteString(`<div class="content-thumb"><img src="`)
+		builder.WriteString(html.EscapeString(item.Poster))
+		builder.WriteString(`" alt="`)
+		builder.WriteString(html.EscapeString(item.Title))
+		builder.WriteString(` poster" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"></div>`)
+		builder.WriteString(`<div class="info"><div class="title">`)
+		builder.WriteString(html.EscapeString(item.Title))
+		builder.WriteString(`</div><div class="meta"><span class="rating">★ `)
+		builder.WriteString(html.EscapeString(item.Rating))
+		builder.WriteString(`</span>`)
+		if item.Year != "" {
+			builder.WriteString(` &middot; `)
+			builder.WriteString(html.EscapeString(item.Year))
+		}
+		builder.WriteString(`</div></div></div>`)
+	}
+	return builder.String()
 }
 
 func validateCamouflageDomain(domain string) error {
