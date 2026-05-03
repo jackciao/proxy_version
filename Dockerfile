@@ -36,7 +36,9 @@ RUN apk add --no-cache tar && \
 RUN curl https://get.acme.sh | sh && \
     /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
 
-RUN mkdir -p /app/data /etc/v2ray-agent/tls
+# Pre-create all volume mount points (Docker can't create them on read-only rootfs layers)
+RUN mkdir -p /app/data /etc/v2ray-agent/tls /etc/v2ray-agent/nodes /etc/v2ray-agent/sing-box \
+    /etc/nginx /etc/systemd/system /opt/1panel/apps/openresty /www/server /host/proc
 
 COPY --from=builder /app/proxy_version .
 COPY --from=builder /app/web ./web
