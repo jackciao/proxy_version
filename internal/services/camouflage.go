@@ -56,6 +56,11 @@ func (s *CamouflageService) findOpenRestyBaseDir() string {
 	for _, pattern := range patterns {
 		if matches, err := filepath.Glob(pattern); err == nil {
 			for _, match := range matches {
+				// 1Panel usually uses vhost for site configs
+				vhostPath := filepath.Join(match, "conf", "vhost")
+				if _, err := os.Stat(vhostPath); err == nil {
+					return match
+				}
 				confPath := filepath.Join(match, "conf", "conf.d")
 				if _, err := os.Stat(confPath); err == nil {
 					return match
@@ -173,9 +178,18 @@ func (s *CamouflageService) copyCertsToOpenResty(domain, certPath, keyPath strin
 	return nil
 }
 
+func (s *CamouflageService) getConfDir() string {
+	vhostDir := filepath.Join(s.hostBasePath, "conf", "vhost")
+	if _, err := os.Stat(vhostDir); err == nil {
+		return vhostDir
+	}
+	// Fallback to conf.d
+	return filepath.Join(s.hostBasePath, "conf", "conf.d")
+}
+
 // createNginxConfig generates and writes the OpenResty site configuration
 func (s *CamouflageService) createNginxConfig(domain string) error {
-	confDir := filepath.Join(s.hostBasePath, "conf", "conf.d")
+	confDir := s.getConfDir()
 	if err := os.MkdirAll(confDir, 0755); err != nil {
 		return err
 	}
@@ -261,7 +275,7 @@ server {
 
 // removeNginxConfig removes the site configuration (for rollback)
 func (s *CamouflageService) removeNginxConfig(domain string) {
-	confPath := filepath.Join(s.hostBasePath, "conf", "conf.d", fmt.Sprintf("streamvault_%s.conf", strings.ReplaceAll(domain, ".", "_")))
+	confPath := filepath.Join(s.getConfDir(), fmt.Sprintf("streamvault_%s.conf", strings.ReplaceAll(domain, ".", "_")))
 	os.Remove(confPath)
 }
 
@@ -297,7 +311,7 @@ func (s *CamouflageService) GetStatus(domain string) CamouflageStatus {
 	}
 
 	// Check if config file exists
-	confPath := filepath.Join(s.hostBasePath, "conf", "conf.d", fmt.Sprintf("streamvault_%s.conf", strings.ReplaceAll(domain, ".", "_")))
+	confPath := filepath.Join(s.getConfDir(), fmt.Sprintf("streamvault_%s.conf", strings.ReplaceAll(domain, ".", "_")))
 	if _, err := os.Stat(confPath); err == nil {
 		// Check if HTML exists
 		indexPath := filepath.Join(s.hostBasePath, "www", "sites", domain, "index", "index.html")
@@ -331,7 +345,7 @@ func (s *CamouflageService) EnsureHTTPServerBlock(domain string) error {
 		return fmt.Errorf("OpenResty 不可用")
 	}
 
-	confDir := filepath.Join(s.hostBasePath, "conf", "conf.d")
+	confDir := s.getConfDir()
 	confPath := filepath.Join(confDir, fmt.Sprintf("acme_temp_%s.conf", strings.ReplaceAll(domain, ".", "_")))
 
 	// Check if a full site config already exists (no need for temp)
@@ -370,7 +384,7 @@ server {
 
 // RemoveTempHTTPConfig removes the temporary ACME validation config
 func (s *CamouflageService) RemoveTempHTTPConfig(domain string) {
-	confPath := filepath.Join(s.hostBasePath, "conf", "conf.d", fmt.Sprintf("acme_temp_%s.conf", strings.ReplaceAll(domain, ".", "_")))
+	confPath := filepath.Join(s.getConfDir(), fmt.Sprintf("acme_temp_%s.conf", strings.ReplaceAll(domain, ".", "_")))
 	if _, err := os.Stat(confPath); err == nil {
 		os.Remove(confPath)
 		s.reloadOpenResty()
