@@ -50,10 +50,11 @@ func main() {
 	// API routes
 	api := r.Group("/api")
 	{
-		// Auth routes (public - login only)
+		// Auth routes (public)
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", handlers.Login(db, cfg.JWTSecret))
+			auth.POST("/setup", handlers.Setup(db))
 			auth.GET("/me", middleware.Auth(cfg.JWTSecret), handlers.GetCurrentUser(db))
 		}
 

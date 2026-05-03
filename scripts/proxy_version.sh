@@ -67,18 +67,23 @@ create_user() {
     
     echo -e "${YELLOW}正在创建用户...${NC}"
     
-    # 调用 API 创建用户
-    response=$(curl -s -X POST "${API_URL}/auth/register" \
+    # 先尝试 /setup（首次初始化，无需认证）
+    response=$(curl -s -w "\n%{http_code}" -X POST "${API_URL}/auth/setup" \
         -H "Content-Type: application/json" \
         -d "{\"username\":\"${username}\",\"password\":\"${password}\",\"email\":\"\"}" 2>/dev/null)
     
-    if echo "$response" | grep -q "user_id\|created"; then
-        echo -e "\n${GREEN}✓ 用户 '$username' 创建成功！${NC}"
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | sed '$d')
+    
+    if [ "$http_code" = "201" ]; then
+        echo -e "\n${GREEN}✓ 初始用户 '$username' 创建成功！${NC}"
         echo -e "\n请访问 ${CYAN}http://服务器IP:8080${NC} 登录\n"
-    elif echo "$response" | grep -q "already exists\|已存在"; then
+    elif [ "$http_code" = "403" ]; then
+        echo -e "\n${YELLOW}系统已存在用户，请通过 Web 界面登录后管理用户${NC}\n"
+    elif echo "$body" | grep -q "already exists\|已存在"; then
         echo -e "\n${RED}✗ 用户名已存在${NC}\n"
     else
-        echo -e "\n${RED}✗ 创建失败: $response${NC}\n"
+        echo -e "\n${RED}✗ 创建失败: $body${NC}\n"
     fi
 }
 

@@ -124,3 +124,49 @@ func GetCurrentUser(db *sql.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, user)
 	}
 }
+
+// Setup allows creating the first user without authentication.
+// Once any user exists, this endpoint is disabled (returns 403).
+func Setup(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Check if any user already exists
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+			return
+		}
+		if count > 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed, please login first"})
+			return
+		}
+
+		// Reuse the register logic for the first user
+		var req models.RegisterRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+			return
+		}
+
+		result, err := db.Exec(
+			"INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)",
+			req.Username, string(hash), req.Email,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+			return
+		}
+
+		id, _ := result.LastInsertId()
+		c.JSON(http.StatusCreated, gin.H{
+			"message": "Initial user created successfully",
+			"user_id": id,
+		})
+	}
+}
