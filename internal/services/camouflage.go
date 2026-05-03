@@ -13,6 +13,10 @@ import (
 type CamouflageService struct {
 	containerName string // 1Panel OpenResty container name
 	hostBasePath  string // e.g. /opt/1panel/apps/openresty/openresty
+	hostConfDir   string // host directory included as OpenResty conf.d
+	hostWWWDir    string // host directory mounted to /www
+	hostSSLDir    string // host directory mounted to OpenResty ssl dir
+	hostLogDir    string // host directory for OpenResty logs
 }
 
 type dockerMount struct {
@@ -49,9 +53,53 @@ func (s *CamouflageService) detect() {
 
 	// Find the host base path for OpenResty
 	s.hostBasePath = s.findOpenRestyBaseDir()
+	s.detectOpenRestyMounts()
 }
 
-// findOpenRestyBaseDir locates the 1Panel OpenResty host directory
+// detectOpenRestyMounts locates the host directories mounted into OpenResty.
+func (s *CamouflageService) detectOpenRestyMounts() {
+	if s.hostBasePath != "" {
+		s.hostWWWDir = filepath.Join(s.hostBasePath, "www")
+		s.hostConfDir = filepath.Join(s.hostBasePath, "conf", "conf.d")
+		if vhostDir := filepath.Join(s.hostBasePath, "conf", "vhost"); pathExists(vhostDir) {
+			s.hostConfDir = vhostDir
+		}
+		s.hostSSLDir = filepath.Join(s.hostBasePath, "conf", "ssl")
+		s.hostLogDir = filepath.Join(s.hostBasePath, "logs")
+		if logDir := filepath.Join(s.hostBasePath, "log"); pathExists(logDir) {
+			s.hostLogDir = logDir
+		}
+	}
+
+	if s.containerName != "" {
+		cmd := exec.Command("docker", "inspect", s.containerName, "--format", "{{json .Mounts}}")
+		if output, err := cmd.Output(); err == nil {
+			var mounts []dockerMount
+			if json.Unmarshal(output, &mounts) == nil {
+				for _, mount := range mounts {
+					switch filepath.Clean(mount.Destination) {
+					case "/www":
+						s.hostWWWDir = mount.Source
+					case "/usr/local/openresty/nginx/conf/conf.d":
+						s.hostConfDir = mount.Source
+					case "/usr/local/openresty/nginx/conf/ssl":
+						s.hostSSLDir = mount.Source
+					case "/var/log/nginx", "/usr/local/openresty/nginx/logs":
+						s.hostLogDir = mount.Source
+					}
+				}
+			}
+		}
+	}
+
+	if s.hostConfDir == "" && pathExists("/opt/1panel/www/conf.d") {
+		s.hostConfDir = "/opt/1panel/www/conf.d"
+	}
+	if s.hostWWWDir == "" && pathExists("/opt/1panel/www") {
+		s.hostWWWDir = "/opt/1panel/www"
+	}
+}
+
 func (s *CamouflageService) findOpenRestyBaseDir() string {
 	// Try standard 1Panel paths
 	patterns := []string{
@@ -85,7 +133,7 @@ func (s *CamouflageService) findOpenRestyBaseDir() string {
 
 // IsAvailable checks if OpenResty is available for deployment
 func (s *CamouflageService) IsAvailable() bool {
-	return s.containerName != "" && s.hostBasePath != ""
+	return s.containerName != "" && s.hostBasePath != "" && s.hostConfDir != "" && s.hostWWWDir != "" && s.hostSSLDir != ""
 }
 
 // DeployCamouflage deploys the StreamVault disguise site for a domain
@@ -130,8 +178,8 @@ func (s *CamouflageService) DeployCamouflage(domain, certPath, keyPath string) e
 // createSiteDir creates the site directory structure
 func (s *CamouflageService) createSiteDir(domain string) error {
 	dirs := []string{
-		filepath.Join(s.hostBasePath, "www", "sites", domain, "index"),
-		filepath.Join(s.hostBasePath, "www", "sites", domain, "index", ".well-known", "acme-challenge"),
+		s.siteRootHostPath(domain),
+		filepath.Join(s.siteRootHostPath(domain), ".well-known", "acme-challenge"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -143,7 +191,7 @@ func (s *CamouflageService) createSiteDir(domain string) error {
 
 // deploySiteHTML writes the StreamVault HTML files to the site directory
 func (s *CamouflageService) deploySiteHTML(domain string) error {
-	siteRoot := filepath.Join(s.hostBasePath, "www", "sites", domain, "index")
+	siteRoot := s.siteRootHostPath(domain)
 
 	// Write index.html
 	if err := os.WriteFile(filepath.Join(siteRoot, "index.html"), []byte(streamVaultIndexHTML), 0644); err != nil {
@@ -161,7 +209,7 @@ func (s *CamouflageService) deploySiteHTML(domain string) error {
 // copyCertsToOpenResty copies SSL certificates to a path accessible by OpenResty container
 func (s *CamouflageService) copyCertsToOpenResty(domain, certPath, keyPath string) error {
 	// Create SSL directory in OpenResty's conf
-	sslDir := filepath.Join(s.hostBasePath, "conf", "ssl", domain)
+	sslDir := s.sslHostDir(domain)
 	if err := os.MkdirAll(sslDir, 0755); err != nil {
 		return err
 	}
@@ -188,11 +236,13 @@ func (s *CamouflageService) copyCertsToOpenResty(domain, certPath, keyPath strin
 }
 
 func (s *CamouflageService) getConfDir() string {
+	if s.hostConfDir != "" {
+		return s.hostConfDir
+	}
 	vhostDir := filepath.Join(s.hostBasePath, "conf", "vhost")
-	if _, err := os.Stat(vhostDir); err == nil {
+	if pathExists(vhostDir) {
 		return vhostDir
 	}
-	// Fallback to conf.d
 	return filepath.Join(s.hostBasePath, "conf", "conf.d")
 }
 
@@ -203,10 +253,13 @@ func (s *CamouflageService) createNginxConfig(domain string) error {
 		return err
 	}
 
-	certHostPath := filepath.Join(s.hostBasePath, "conf", "ssl", domain, "fullchain.pem")
-	keyHostPath := filepath.Join(s.hostBasePath, "conf", "ssl", domain, "privkey.pem")
-	siteRootHostPath := filepath.Join(s.hostBasePath, "www", "sites", domain, "index")
-	logHostDir := filepath.Join(s.hostBasePath, "logs")
+	certHostPath := filepath.Join(s.sslHostDir(domain), "fullchain.pem")
+	keyHostPath := filepath.Join(s.sslHostDir(domain), "privkey.pem")
+	siteRootHostPath := s.siteRootHostPath(domain)
+	logHostDir := s.hostLogDir
+	if logHostDir == "" {
+		logHostDir = filepath.Join(s.hostBasePath, "logs")
+	}
 
 	certContainerPath := s.containerPathFor(certHostPath, fmt.Sprintf("/usr/local/openresty/nginx/conf/ssl/%s/fullchain.pem", domain))
 	keyContainerPath := s.containerPathFor(keyHostPath, fmt.Sprintf("/usr/local/openresty/nginx/conf/ssl/%s/privkey.pem", domain))
@@ -234,8 +287,9 @@ server {
 }
 
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name %s;
 
     # SSL Configuration
@@ -346,7 +400,7 @@ func (s *CamouflageService) GetStatus(domain string) CamouflageStatus {
 	confPath := filepath.Join(s.getConfDir(), fmt.Sprintf("streamvault_%s.conf", strings.ReplaceAll(domain, ".", "_")))
 	if _, err := os.Stat(confPath); err == nil {
 		// Check if HTML exists
-		indexPath := filepath.Join(s.hostBasePath, "www", "sites", domain, "index", "index.html")
+		indexPath := filepath.Join(s.siteRootHostPath(domain), "index.html")
 		if _, err := os.Stat(indexPath); err == nil {
 			status.Deployed = true
 			status.URL = fmt.Sprintf("https://%s", domain)
@@ -361,11 +415,11 @@ func (s *CamouflageService) CreateWebrootDir(domain string) (string, error) {
 	if err := validateCamouflageDomain(domain); err != nil {
 		return "", err
 	}
-	if s.hostBasePath == "" {
-		return "", fmt.Errorf("OpenResty 基础目录未找到")
+	if s.hostWWWDir == "" {
+		return "", fmt.Errorf("OpenResty Web 目录未找到")
 	}
 
-	webrootDir := filepath.Join(s.hostBasePath, "www", "sites", domain, "index")
+	webrootDir := s.siteRootHostPath(domain)
 	challengeDir := filepath.Join(webrootDir, ".well-known", "acme-challenge")
 	if err := os.MkdirAll(challengeDir, 0755); err != nil {
 		return "", err
@@ -392,7 +446,7 @@ func (s *CamouflageService) EnsureHTTPServerBlock(domain string) error {
 		return nil // Full config already exists, ACME challenge is supported
 	}
 
-	webrootHostPath := filepath.Join(s.hostBasePath, "www", "sites", domain, "index")
+	webrootHostPath := s.siteRootHostPath(domain)
 	webrootContainerPath := s.containerPathFor(webrootHostPath, fmt.Sprintf("/www/sites/%s/index", domain))
 
 	config := fmt.Sprintf(`# Temporary ACME validation config - auto-generated
@@ -430,6 +484,19 @@ func (s *CamouflageService) RemoveTempHTTPConfig(domain string) {
 		os.Remove(confPath)
 		s.reloadOpenResty()
 	}
+}
+
+func (s *CamouflageService) siteRootHostPath(domain string) string {
+	return filepath.Join(s.hostWWWDir, "sites", domain, "index")
+}
+
+func (s *CamouflageService) sslHostDir(domain string) string {
+	return filepath.Join(s.hostSSLDir, domain)
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (s *CamouflageService) containerPathFor(hostPath, fallback string) string {
