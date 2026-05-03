@@ -505,6 +505,18 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warp
 		return fmt.Errorf("生成配置失败: %v", err)
 	}
 
+	// If this node will bind to port 443 (the default HTTPS port already
+	// claimed by 1Panel OpenResty), make sure OpenResty no longer
+	// occupies the IPv6 :443 listener so the bind does not collide.
+	if portUsed := nodePortFromConfig(config); portUsed == 443 {
+		camo := NewCamouflageService()
+		if camo.IsAvailable() {
+			if err := camo.DisableIPv6On443(); err != nil {
+				fmt.Printf("[node-%d] 关闭 OpenResty IPv6:443 监听失败: %v\n", nodeID, err)
+			}
+		}
+	}
+
 	configData, _ := json.MarshalIndent(singboxConfig, "", "  ")
 
 	// Copy TLS certificates from container to host (sing-box runs on host, needs certs on host)
@@ -571,6 +583,35 @@ func (s *ProxyService) StopNode(nodeID int64) error {
 	s.runOnHost("systemctl", "disable", serviceName)
 
 	return nil
+}
+
+// nodePortFromConfig extracts the listen port from a node config map.
+// It accepts both numeric and string representations.
+func nodePortFromConfig(config map[string]interface{}) int {
+	if config == nil {
+		return 0
+	}
+	switch v := config["port"].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case string:
+		if v == "" {
+			return 0
+		}
+		n := 0
+		for _, c := range v {
+			if c < '0' || c > '9' {
+				return 0
+			}
+			n = n*10 + int(c-'0')
+		}
+		return n
+	}
+	return 0
 }
 
 // runOnHost executes a command on the host system using nsenter
@@ -676,13 +717,8 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		// Get listen IP from config, default to all interfaces
 		listenIP := "::"
 		if li, ok := config["listen"].(string); ok && li != "" {
-			// Check if this is a public IP that needs to be mapped to local IP (NAT)
 			detector := NewDetectorService()
-			if localIP := detector.GetLocalIPForPublic(li); localIP != "" {
-				listenIP = localIP
-			} else {
-				listenIP = li
-			}
+			listenIP = detector.ResolveBindAddress(li)
 		}
 
 		inbound = map[string]interface{}{

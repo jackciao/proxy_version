@@ -187,13 +187,78 @@ func (s *CamouflageService) DeployCamouflage(domain, certPath, keyPath string) e
 		return fmt.Errorf("创建站点配置失败: %v", err)
 	}
 
-	// Step 5: Test and reload OpenResty
+	// Step 5: Make sure OpenResty no longer occupies IPv6 :443 so that
+	// VLESS/Reality nodes bound to [::]:443 can start without conflict.
+	if err := s.DisableIPv6On443(); err != nil {
+		// Non-fatal: log via returned error message but continue
+		// since the camouflage site itself does not need IPv6.
+		fmt.Printf("[camouflage] 关闭 OpenResty IPv6:443 监听失败: %v\n", err)
+	}
+
+	// Step 6: Test and reload OpenResty
 	if err := s.reloadOpenResty(); err != nil {
 		// Try to roll back config on failure
 		s.removeNginxConfig(domain)
 		return fmt.Errorf("重载 OpenResty 失败: %v", err)
 	}
 
+	return nil
+}
+
+// DisableIPv6On443 walks every loaded OpenResty configuration file and
+// comments out any "listen [::]:443 ..." (or quic) directive that is
+// currently active. The IPv4 :443 listener is preserved so HTTPS keeps
+// working, but releases [::]:443 for other services (e.g. sing-box).
+//
+// The helper is idempotent: previously commented entries are left alone
+// and the OpenResty service is reloaded only when files actually change.
+func (s *CamouflageService) DisableIPv6On443() error {
+	if s.containerName == "" {
+		return nil
+	}
+
+	// Find candidate config files inside the container.
+	listOut, err := exec.Command("docker", "exec", s.containerName, "sh", "-c",
+		`grep -RIl --include='*.conf' -E '^[[:space:]]*listen[[:space:]]+\[::\]:443([[:space:]]|;)' /usr/local/openresty/nginx/conf 2>/dev/null || true`).
+		CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("扫描 OpenResty 配置失败: %v: %s", err, string(listOut))
+	}
+
+	files := strings.Split(strings.TrimSpace(string(listOut)), "\n")
+	changed := false
+	for _, f := range files {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		// Comment out any uncommented "listen [::]:443 ..." line.
+		// Use sed -E for portable extended regex.
+		script := `sed -i -E 's@^([[:space:]]*)(listen[[:space:]]+\[::\]:443[^;]*;)@\1# disabled by proxy_version: \2@' ` + f
+		if out, err := exec.Command("docker", "exec", s.containerName, "sh", "-c", script).CombinedOutput(); err != nil {
+			return fmt.Errorf("修改 %s 失败: %v: %s", f, err, string(out))
+		}
+		changed = true
+	}
+
+	if !changed {
+		return nil
+	}
+
+	// Validate config first so we don't break OpenResty.
+	if _, err := s.execOpenResty("-t"); err != nil {
+		return fmt.Errorf("修改后配置测试失败: %v", err)
+	}
+
+	// SIGHUP / "-s reload" does not always close existing listen sockets,
+	// so restart the container to be sure [::]:443 is released.
+	if out, err := exec.Command("docker", "restart", s.containerName).CombinedOutput(); err != nil {
+		// Fall back to a normal reload, which at least applies textual changes.
+		if _, rerr := s.execOpenResty("-s", "reload"); rerr != nil {
+			return fmt.Errorf("重启容器失败 (%s): %v; 退化重载也失败: %v",
+				strings.TrimSpace(string(out)), err, rerr)
+		}
+	}
 	return nil
 }
 
@@ -298,7 +363,6 @@ func (s *CamouflageService) createNginxConfig(domain string) error {
 
 server {
     listen 80;
-    listen [::]:80;
     server_name %s;
 
     # ACME challenge for certificate renewal
@@ -315,7 +379,6 @@ server {
 
 server {
     listen 443 ssl;
-    listen [::]:443 ssl;
     http2 on;
     server_name %s;
 
@@ -479,7 +542,6 @@ func (s *CamouflageService) EnsureHTTPServerBlock(domain string) error {
 	config := fmt.Sprintf(`# Temporary ACME validation config - auto-generated
 server {
     listen 80;
-    listen [::]:80;
     server_name %s;
 
     location ^~ /.well-known/acme-challenge/ {

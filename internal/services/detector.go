@@ -695,6 +695,79 @@ func contains(list []string, item string) bool {
 	return false
 }
 
+// IsHostLocalIP reports whether the given IP literal is bound to a host
+// network interface (excluding loopback / link-local). This is used to
+// decide whether sing-box can directly bind to that address.
+func (d *DetectorService) IsHostLocalIP(ipStr string) bool {
+	target := net.ParseIP(ipStr)
+	if target == nil {
+		return false
+	}
+
+	// Prefer the host network namespace view (container can't see host NICs)
+	for _, info := range d.getHostInterfaceIPs() {
+		if ip := net.ParseIP(info.IP); ip != nil && ip.Equal(target) {
+			return true
+		}
+	}
+
+	// Fallback to the local namespace (host install or network_mode: host)
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, iface := range ifaces {
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+				if ip != nil && ip.Equal(target) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// ResolveBindAddress returns the address sing-box should listen on.
+// Behaviour:
+//   - If `listen` is empty / wildcard, return it unchanged.
+//   - If a public IP maps to a private one via NAT, return the private IP.
+//   - If `listen` itself is a host-local address, return it as-is.
+//   - Otherwise (typical EIP/Floating-IP setups) fall back to the wildcard
+//     address (`0.0.0.0` for IPv4, `::` for IPv6) so the bind never fails.
+func (d *DetectorService) ResolveBindAddress(listen string) string {
+	listen = strings.TrimSpace(listen)
+	if listen == "" || listen == "0.0.0.0" || listen == "::" {
+		if listen == "" {
+			return "::"
+		}
+		return listen
+	}
+
+	if local := d.GetLocalIPForPublic(listen); local != "" {
+		return local
+	}
+
+	if d.IsHostLocalIP(listen) {
+		return listen
+	}
+
+	if ip := net.ParseIP(listen); ip != nil {
+		if ip.To4() != nil {
+			return "0.0.0.0"
+		}
+		return "::"
+	}
+	return listen
+}
+
 // GetLocalIPForPublic returns the local IP that should be used for binding
 // when the user selects a public IP. This handles NAT environments where
 // the public IP is not directly available on the interface.
