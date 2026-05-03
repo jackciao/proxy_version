@@ -28,6 +28,10 @@ RUN apk add --no-cache \
 # Create symlink for bash compatibility (acme.sh uses #!/usr/bin/bash)
 RUN ln -sf /bin/bash /usr/bin/bash
 
+# Install GNU tar for arm64 compatibility (BusyBox tar fails under QEMU emulation)
+RUN apk add --no-cache tar && \
+    ln -sf /usr/bin/tar /usr/bin/gtar
+
 # Install acme.sh without email (account will be registered on first use with user's email)
 RUN curl https://get.acme.sh | sh && \
     /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
