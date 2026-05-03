@@ -14,8 +14,8 @@ import (
 type CertProgress struct {
 	Domain    string `json:"domain"`
 	Status    string `json:"status"`     // pending, running, success, failed
-	Step      int    `json:"step"`       // 当前步骤 1-5
-	TotalStep int    `json:"total_step"` // 总步骤数 5
+	Step      int    `json:"step"`       // 当前步骤 1-6
+	TotalStep int    `json:"total_step"` // 总步骤数 6
 	StepName  string `json:"step_name"`  // 当前步骤描述
 	Error     string `json:"error,omitempty"`
 	UpdatedAt int64  `json:"updated_at"` // Unix timestamp
@@ -205,8 +205,8 @@ func (s *CertificateService) extractError(output string) string {
 	lines := strings.Split(output, "\n")
 	var relevantLines []string
 	for _, line := range lines {
-		if strings.Contains(line, "Error") || strings.Contains(line, "error") || 
-		   strings.Contains(line, "invalid") || strings.Contains(line, "response=") {
+		if strings.Contains(line, "Error") || strings.Contains(line, "error") ||
+			strings.Contains(line, "invalid") || strings.Contains(line, "response=") {
 			relevantLines = append(relevantLines, strings.TrimSpace(line))
 		}
 	}
@@ -249,9 +249,9 @@ func (s *CertificateService) issueViaDNS(domain, dnsProvider, apiToken, cfEmail 
 		//
 		// If user provides email AND the token looks like a Global API Key, use CF_Key method
 		// Otherwise, always use CF_Token method (modern, recommended)
-		
+
 		isGlobalKey := cfEmail != "" && len(apiToken) >= 32 && len(apiToken) <= 40
-		
+
 		if isGlobalKey {
 			// Global API Key method (legacy)
 			env = append(env, "CF_Key="+apiToken)
@@ -265,16 +265,13 @@ func (s *CertificateService) issueViaDNS(domain, dnsProvider, apiToken, cfEmail 
 			}
 		} else {
 			// API Token method (recommended)
-			env = append(env, "CF_Token="+apiToken)
-			// Clear CF_Key and CF_Email to avoid conflicts
 			var newEnv []string
 			for _, e := range env {
-				if !strings.HasPrefix(e, "CF_Key=") && !strings.HasPrefix(e, "CF_Email=") {
+				if !strings.HasPrefix(e, "CF_Key=") && !strings.HasPrefix(e, "CF_Email=") && !strings.HasPrefix(e, "CF_Token=") {
 					newEnv = append(newEnv, e)
 				}
 			}
-			env = newEnv
-			env = append(env, "CF_Token="+apiToken)
+			env = append(newEnv, "CF_Token="+apiToken)
 		}
 		args = append(args, "--dns", "dns_cf")
 
@@ -329,7 +326,7 @@ func (s *CertificateService) cleanOldAccount() {
 	// Remove ca directory which contains account info with invalid email
 	caDir := "/root/.acme.sh/ca"
 	os.RemoveAll(caDir)
-	
+
 	// Also clean the account email from account.conf
 	confPath := "/root/.acme.sh/account.conf"
 	data, err := os.ReadFile(confPath)
@@ -341,9 +338,9 @@ func (s *CertificateService) cleanOldAccount() {
 	var newLines []string
 	for _, line := range lines {
 		// Skip account email/key entries that may have invalid email
-		if strings.HasPrefix(line, "ACCOUNT_EMAIL") || 
-		   strings.HasPrefix(line, "ACCOUNT_THUMBPRINT") ||
-		   strings.Contains(line, "example.com") {
+		if strings.HasPrefix(line, "ACCOUNT_EMAIL") ||
+			strings.HasPrefix(line, "ACCOUNT_THUMBPRINT") ||
+			strings.Contains(line, "example.com") {
 			continue
 		}
 		newLines = append(newLines, line)
@@ -492,13 +489,13 @@ func (s *CertificateService) RenewCertificate(domain string) error {
 
 // CertificateInfo contains detailed information about a certificate
 type CertificateInfo struct {
-	Domain       string    `json:"domain"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	NextRenewAt  time.Time `json:"next_renew_at"`
-	CertPath     string    `json:"cert_path"`
-	KeyPath      string    `json:"key_path"`
-	AcmePath     string    `json:"acme_path"`
-	Provider     string    `json:"provider"`
+	Domain      string    `json:"domain"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	NextRenewAt time.Time `json:"next_renew_at"`
+	CertPath    string    `json:"cert_path"`
+	KeyPath     string    `json:"key_path"`
+	AcmePath    string    `json:"acme_path"`
+	Provider    string    `json:"provider"`
 }
 
 // GetCertificateInfo returns detailed information about a certificate
@@ -550,4 +547,3 @@ func (s *CertificateService) DeleteCertificate(domain string) error {
 
 	return nil
 }
-

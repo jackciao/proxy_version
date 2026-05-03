@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"proxy_version/internal/models"
+
+	"golang.org/x/crypto/curve25519"
 )
 
 type ProxyService struct {
@@ -50,16 +52,16 @@ type CoreStatus struct {
 // GetCoreStatus returns the installation status of sing-box
 func (s *ProxyService) GetCoreStatus() CoreStatus {
 	status := CoreStatus{}
-	
+
 	// Check sing-box on HOST using nsenter (since we run in container but sing-box is on host)
 	singboxPaths := []string{"/usr/local/bin/sing-box", "/etc/v2ray-agent/sing-box/sing-box", "/usr/bin/sing-box"}
-	
+
 	for _, path := range singboxPaths {
 		// Use nsenter to check if file exists on host
 		cmd := exec.Command("nsenter", "-t", "1", "-m", "test", "-f", path)
 		if err := cmd.Run(); err == nil {
 			status.SingBoxInstalled = true
-			
+
 			// Get version using nsenter
 			versionCmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", path, "version")
 			if output, err := versionCmd.Output(); err == nil {
@@ -77,7 +79,7 @@ func (s *ProxyService) GetCoreStatus() CoreStatus {
 			break
 		}
 	}
-	
+
 	return status
 }
 
@@ -88,7 +90,7 @@ func (s *ProxyService) InstallSingBox() error {
 	if status.SingBoxInstalled {
 		return nil
 	}
-	
+
 	// Download and install sing-box
 	script := `
 set -e
@@ -101,8 +103,9 @@ esac
 VERSION="1.10.4"
 URL="https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-${ARCH}.tar.gz"
 cd /tmp
-wget -q "$URL" -O sing-box.tar.gz
+curl -fsSL "$URL" -o sing-box.tar.gz
 tar -xzf sing-box.tar.gz
+mkdir -p /usr/local/bin
 mv sing-box-${VERSION}-linux-${ARCH}/sing-box /usr/local/bin/
 chmod +x /usr/local/bin/sing-box
 rm -rf sing-box.tar.gz sing-box-${VERSION}-linux-${ARCH}
@@ -135,7 +138,7 @@ rm -f /etc/systemd/system/proxy_node_*.service
 systemctl daemon-reload 2>/dev/null || true
 `
 	s.runOnHost("bash", "-c", stopScript)
-	
+
 	// Remove sing-box binary from ALL possible installation paths
 	// This must match the paths checked in GetCoreStatus()
 	removeScript := `
@@ -180,30 +183,30 @@ echo "removed_successfully"
 exit 0
 `
 	output, err := s.runOnHost("bash", "-c", removeScript)
-	
+
 	if err != nil {
 		return fmt.Errorf("卸载失败: %v, 输出: %s", err, output)
 	}
-	
+
 	if strings.Contains(output, "removal_failed") {
 		return fmt.Errorf("sing-box 文件删除失败: %s", output)
 	}
-	
+
 	// Also remove config directory
 	s.runOnHost("bash", "-c", "rm -rf /etc/v2ray-agent/nodes")
-	
+
 	return nil
 }
 
 // GetRandomAvailablePort returns a random available port
 func (s *ProxyService) GetRandomAvailablePort() int {
 	mrand.Seed(time.Now().UnixNano())
-	
+
 	// Try up to 20 times to find an available port
 	for i := 0; i < 20; i++ {
 		// Generate random port between 10000 and 60000
 		port := mrand.Intn(50000) + 10000
-		
+
 		// Check if port is available
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err == nil {
@@ -211,7 +214,7 @@ func (s *ProxyService) GetRandomAvailablePort() int {
 			return port
 		}
 	}
-	
+
 	// Fallback: let system assign a port
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -440,14 +443,14 @@ func (s *ProxyService) generateHysteria2Config(domain string, port int, config m
 	}
 
 	return map[string]interface{}{
-		"protocol":  "hysteria2",
-		"password":  config.Password,
-		"port":      port,
-		"domain":    domain,
-		"upMbps":    config.UpMbps,
-		"downMbps":  config.DownMbps,
-		"certPath":  config.CertPath,
-		"keyPath":   config.KeyPath,
+		"protocol": "hysteria2",
+		"password": config.Password,
+		"port":     port,
+		"domain":   domain,
+		"upMbps":   config.UpMbps,
+		"downMbps": config.DownMbps,
+		"certPath": config.CertPath,
+		"keyPath":  config.KeyPath,
 	}, nil
 }
 
@@ -501,20 +504,20 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warp
 	if err != nil {
 		return fmt.Errorf("生成配置失败: %v", err)
 	}
-	
+
 	configData, _ := json.MarshalIndent(singboxConfig, "", "  ")
-	
+
 	// Copy TLS certificates from container to host (sing-box runs on host, needs certs on host)
 	s.copyCertsToHost()
-	
+
 	// Use nsenter to write config file to host filesystem
 	configDir := "/etc/v2ray-agent/nodes"
 	configPath := filepath.Join(configDir, fmt.Sprintf("node_%d.json", nodeID))
-	
+
 	// Create directory on host
 	mkdirScript := fmt.Sprintf("mkdir -p %s", configDir)
 	s.runOnHost("bash", "-c", mkdirScript)
-	
+
 	// Write config file to host using cat with heredoc via nsenter
 	writeConfigScript := fmt.Sprintf("cat > %s << 'EOFCONFIG'\n%s\nEOFCONFIG", configPath, string(configData))
 	if _, err := s.runOnHost("bash", "-c", writeConfigScript); err != nil {
@@ -523,6 +526,7 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warp
 
 	// Create systemd service on host
 	serviceName := fmt.Sprintf("proxy_node_%d", nodeID)
+	singboxPath := s.findSingBoxPathOnHost()
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=Proxy Node %d
 After=network.target
@@ -530,16 +534,16 @@ After=network.target
 [Service]
 Type=simple
 Environment=ENABLE_DEPRECATED_WIREGUARD_OUTBOUND=true
-ExecStart=/usr/local/bin/sing-box run -c %s
+ExecStart=%s run -c %s
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-`, nodeID, configPath)
+`, nodeID, singboxPath, configPath)
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", serviceName)
-	
+
 	// Write service file to host
 	writeServiceScript := fmt.Sprintf("cat > %s << 'EOFSERVICE'\n%s\nEOFSERVICE", servicePath, serviceContent)
 	if _, err := s.runOnHost("bash", "-c", writeServiceScript); err != nil {
@@ -550,22 +554,22 @@ WantedBy=multi-user.target
 	if _, err := s.runOnHost("systemctl", "daemon-reload"); err != nil {
 		return fmt.Errorf("daemon-reload 失败: %v", err)
 	}
-	
+
 	s.runOnHost("systemctl", "enable", serviceName)
-	
+
 	if _, err := s.runOnHost("systemctl", "start", serviceName); err != nil {
 		return fmt.Errorf("启动服务失败: %v", err)
 	}
-	
+
 	return nil
 }
 
 func (s *ProxyService) StopNode(nodeID int64) error {
 	serviceName := fmt.Sprintf("proxy_node_%d", nodeID)
-	
+
 	s.runOnHost("systemctl", "stop", serviceName)
 	s.runOnHost("systemctl", "disable", serviceName)
-	
+
 	return nil
 }
 
@@ -580,34 +584,44 @@ func (s *ProxyService) runOnHost(command string, args ...string) (string, error)
 	return string(output), nil
 }
 
+func (s *ProxyService) findSingBoxPathOnHost() string {
+	paths := []string{"/usr/local/bin/sing-box", "/etc/v2ray-agent/sing-box/sing-box", "/usr/bin/sing-box"}
+	for _, path := range paths {
+		if _, err := s.runOnHost("test", "-x", path); err == nil {
+			return path
+		}
+	}
+	return "/usr/local/bin/sing-box"
+}
+
 // copyCertsToHost copies TLS certificates from container to host filesystem
 // This is needed because sing-box runs on host and needs access to certs
 func (s *ProxyService) copyCertsToHost() {
 	certDir := "/etc/v2ray-agent/tls"
-	
+
 	// Create cert directory on host
 	s.runOnHost("bash", "-c", fmt.Sprintf("mkdir -p %s", certDir))
-	
+
 	// Find all certificate files in container and copy to host
 	entries, err := os.ReadDir(certDir)
 	if err != nil {
 		return
 	}
-	
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		
+
 		filename := entry.Name()
 		srcPath := filepath.Join(certDir, filename)
-		
+
 		// Read cert content from container
 		content, err := os.ReadFile(srcPath)
 		if err != nil {
 			continue
 		}
-		
+
 		// Write to host using nsenter with base64 encoding to handle special chars
 		encodedContent := base64.StdEncoding.EncodeToString(content)
 		writeScript := fmt.Sprintf("echo '%s' | base64 -d > %s", encodedContent, srcPath)
@@ -617,12 +631,12 @@ func (s *ProxyService) copyCertsToHost() {
 
 // generateSingBoxConfig generates a sing-box compatible configuration
 func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled bool, db interface{}) (map[string]interface{}, error) {
-	
+
 	port := 443
 	if p, ok := config["port"].(float64); ok {
 		port = int(p)
 	}
-	
+
 	protocol := ""
 	if p, ok := config["protocol"].(string); ok {
 		protocol = p
@@ -652,13 +666,13 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		if t, ok := config["transport"].(string); ok {
 			transport = t
 		}
-		
+
 		// For gRPC, users don't need flow
 		userFlow := "xtls-rprx-vision"
 		if transport == "grpc" || transport == "ws" {
 			userFlow = ""
 		}
-		
+
 		// Get listen IP from config, default to all interfaces
 		listenIP := "::"
 		if li, ok := config["listen"].(string); ok && li != "" {
@@ -670,7 +684,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 				listenIP = li
 			}
 		}
-		
+
 		inbound = map[string]interface{}{
 			"type":        "vless",
 			"tag":         "vless-in",
@@ -679,18 +693,8 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			"users": []map[string]interface{}{
 				{"uuid": uuid, "flow": userFlow},
 			},
-			// Enable multiplex for better performance
-			"multiplex": map[string]interface{}{
-				"enabled": true,
-				"padding": true,
-				"brutal": map[string]interface{}{
-					"enabled":   true,
-					"up_mbps":   100,
-					"down_mbps": 100,
-				},
-			},
 		}
-		
+
 		// Add transport config
 		if transport == "ws" {
 			path := "/vless-ws"
@@ -698,9 +702,9 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 				path = p
 			}
 			inbound["transport"] = map[string]interface{}{
-				"type": "ws",
-				"path": path,
-				"max_early_data": 2048,
+				"type":                   "ws",
+				"path":                   path,
+				"max_early_data":         2048,
 				"early_data_header_name": "Sec-WebSocket-Protocol",
 			}
 		} else if transport == "grpc" {
@@ -709,16 +713,16 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 				serviceName = sn
 			}
 			inbound["transport"] = map[string]interface{}{
-				"type": "grpc",
+				"type":         "grpc",
 				"service_name": serviceName,
 			}
 		}
-		
+
 		if security == "reality" {
 			privateKey := ""
 			serverName := GetSuggestedSNI()
 			shortId := ""
-			
+
 			if pk, ok := config["privateKey"].(string); ok {
 				privateKey = pk
 			}
@@ -728,7 +732,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			if si, ok := config["shortId"].(string); ok {
 				shortId = si
 			}
-			
+
 			inbound["tls"] = map[string]interface{}{
 				"enabled":     true,
 				"server_name": serverName,
@@ -756,11 +760,11 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			if kp, ok := config["keyPath"].(string); ok {
 				keyPath = kp
 			}
-			
-		tlsConfig := map[string]interface{}{
+
+			tlsConfig := map[string]interface{}{
 				"enabled": true,
 			}
-			
+
 			// Use domain-based certificate paths or explicitly provided paths
 			if certPath != "" && keyPath != "" {
 				tlsConfig["certificate_path"] = certPath
@@ -774,14 +778,14 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 				tlsConfig["certificate_path"] = "/etc/v2ray-agent/tls/selfsigned.crt"
 				tlsConfig["key_path"] = "/etc/v2ray-agent/tls/selfsigned.key"
 			}
-			
+
 			if domain != "" {
 				tlsConfig["server_name"] = domain
 			}
-			
+
 			inbound["tls"] = tlsConfig
 		}
-		
+
 	case "trojan":
 		password := ""
 		if p, ok := config["password"].(string); ok {
@@ -796,7 +800,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 				{"password": password},
 			},
 		}
-		
+
 	case "hysteria2":
 		password := ""
 		if p, ok := config["password"].(string); ok {
@@ -814,11 +818,11 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		if kp, ok := config["keyPath"].(string); ok {
 			keyPath = kp
 		}
-		
+
 		tlsConfig := map[string]interface{}{
 			"enabled": true,
 		}
-		
+
 		// Use domain-based certificate paths or explicitly provided paths
 		if certPath != "" && keyPath != "" {
 			tlsConfig["certificate_path"] = certPath
@@ -832,13 +836,13 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			tlsConfig["certificate_path"] = "/etc/v2ray-agent/tls/selfsigned.crt"
 			tlsConfig["key_path"] = "/etc/v2ray-agent/tls/selfsigned.key"
 		}
-		
+
 		if domain != "" {
 			tlsConfig["server_name"] = domain
 		}
-		
+
 		tlsConfig["alpn"] = []string{"h3"}
-		
+
 		inbound = map[string]interface{}{
 			"type":        "hysteria2",
 			"tag":         "hy2-in",
@@ -851,7 +855,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			"down_mbps": 100,
 			"tls":       tlsConfig,
 		}
-		
+
 	case "shadowsocks":
 		password := ""
 		method := "2022-blake3-aes-256-gcm"
@@ -869,7 +873,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			"method":      method,
 			"password":    password,
 		}
-		
+
 	case "tuic":
 		uuid := ""
 		password := ""
@@ -891,12 +895,12 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		if kp, ok := config["keyPath"].(string); ok {
 			keyPath = kp
 		}
-		
+
 		tlsConfig := map[string]interface{}{
 			"enabled": true,
 			"alpn":    []string{"h3"},
 		}
-		
+
 		if certPath != "" && keyPath != "" {
 			tlsConfig["certificate_path"] = certPath
 			tlsConfig["key_path"] = keyPath
@@ -907,29 +911,29 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			tlsConfig["certificate_path"] = "/etc/v2ray-agent/tls/selfsigned.crt"
 			tlsConfig["key_path"] = "/etc/v2ray-agent/tls/selfsigned.key"
 		}
-		
+
 		if domain != "" {
 			tlsConfig["server_name"] = domain
 		}
-		
+
 		inbound = map[string]interface{}{
-			"type":               "tuic",
-			"tag":                "tuic-in",
-			"listen":             "::",
-			"listen_port":        port,
+			"type":        "tuic",
+			"tag":         "tuic-in",
+			"listen":      "::",
+			"listen_port": port,
 			"users": []map[string]interface{}{
 				{"uuid": uuid, "password": password},
 			},
 			"congestion_control": "bbr",
 			"tls":                tlsConfig,
 		}
-		
+
 	default:
 		return nil, fmt.Errorf("暂不支持的协议: %s", protocol)
 	}
 
 	singboxConfig["inbounds"] = []map[string]interface{}{inbound}
-	
+
 	// Add outbounds - required for proxy to forward traffic
 	outbounds := []map[string]interface{}{
 		{
@@ -941,7 +945,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			"tag":  "block",
 		},
 	}
-	
+
 	// Add WARP outbound if enabled
 	finalOutbound := "direct"
 	if warpEnabled && db != nil {
@@ -954,15 +958,14 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			}
 		}
 	}
-	
-	
+
 	singboxConfig["outbounds"] = outbounds
-	
+
 	// Add route - direct all traffic to final outbound
 	singboxConfig["route"] = map[string]interface{}{
 		"final": finalOutbound,
 	}
-	
+
 	return singboxConfig, nil
 }
 
@@ -985,57 +988,22 @@ func generatePassword() string {
 }
 
 func generateX25519Keys() (string, string) {
-	// Use nsenter to access sing-box on HOST system (since sing-box is installed on host, not in container)
-	singboxPaths := []string{"/usr/local/bin/sing-box", "/etc/v2ray-agent/sing-box/sing-box", "/usr/bin/sing-box"}
-	
-	for _, path := range singboxPaths {
-		// Use nsenter to check if sing-box exists on host and generate keypair
-		cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", path, "generate", "reality-keypair")
-		output, err := cmd.Output()
-		if err == nil {
-			lines := strings.Split(string(output), "\n")
-			var privateKey, publicKey string
-			for _, line := range lines {
-				if strings.HasPrefix(line, "PrivateKey:") {
-					privateKey = strings.TrimSpace(strings.TrimPrefix(line, "PrivateKey:"))
-				} else if strings.HasPrefix(line, "PublicKey:") {
-					publicKey = strings.TrimSpace(strings.TrimPrefix(line, "PublicKey:"))
-				}
-			}
-			if privateKey != "" && publicKey != "" {
-				return publicKey, privateKey
-			}
-		}
+	privateKey := make([]byte, curve25519.ScalarSize)
+	if _, err := rand.Read(privateKey); err != nil {
+		panic(err)
 	}
-	
-	// Fallback: try without nsenter (for development/testing on host)
-	for _, path := range singboxPaths {
-		if _, err := os.Stat(path); err == nil {
-			output, err := exec.Command(path, "generate", "reality-keypair").Output()
-			if err == nil {
-				lines := strings.Split(string(output), "\n")
-				var privateKey, publicKey string
-				for _, line := range lines {
-					if strings.HasPrefix(line, "PrivateKey:") {
-						privateKey = strings.TrimSpace(strings.TrimPrefix(line, "PrivateKey:"))
-					} else if strings.HasPrefix(line, "PublicKey:") {
-						publicKey = strings.TrimSpace(strings.TrimPrefix(line, "PublicKey:"))
-					}
-				}
-				if privateKey != "" && publicKey != "" {
-					return publicKey, privateKey
-				}
-			}
-		}
+
+	// Match X25519 private key clamping used by sing-box's reality-keypair command.
+	privateKey[0] &= 248
+	privateKey[31] &= 127
+	privateKey[31] |= 64
+
+	publicKey, err := curve25519.X25519(privateKey, curve25519.Basepoint)
+	if err != nil {
+		panic(err)
 	}
-	
-	// Last resort fallback: generate random keys (will NOT work for Reality!)
-	// This should never happen if sing-box is properly installed
-	priv := make([]byte, 32)
-	rand.Read(priv)
-	pub := make([]byte, 32)
-	rand.Read(pub)
-	return base64.RawURLEncoding.EncodeToString(pub), base64.RawURLEncoding.EncodeToString(priv)
+
+	return base64.RawURLEncoding.EncodeToString(publicKey), base64.RawURLEncoding.EncodeToString(privateKey)
 }
 
 func generateRandomServiceName() string {
@@ -1107,42 +1075,42 @@ func getServerIPs() (ipv4, ipv6 string) {
 			}
 		}
 	}
-	
+
 	// If no public IPv4 found locally, try external API (for NAT/cloud environments)
 	if ipv4 == "" {
 		ipv4 = getExternalIPv4()
 	}
-	
+
 	// If no public IPv6 found locally, try external API
 	if ipv6 == "" {
 		ipv6 = getExternalIPv6()
 	}
-	
+
 	return ipv4, ipv6
 }
 
 // getExternalIPv4 gets the public IPv4 address via external API
 func getExternalIPv4() string {
 	client := &http.Client{Timeout: 5 * time.Second}
-	
+
 	// Try multiple APIs for redundancy
 	apis := []string{
 		"https://api4.ipify.org",
 		"https://ipv4.icanhazip.com",
 		"https://v4.ident.me",
 	}
-	
+
 	for _, api := range apis {
 		resp, err := client.Get(api)
 		if err != nil {
 			continue
 		}
 		defer resp.Body.Close()
-		
+
 		body := make([]byte, 64)
 		n, _ := resp.Body.Read(body)
 		ip := strings.TrimSpace(string(body[:n]))
-		
+
 		// Validate it's a valid IPv4
 		if net.ParseIP(ip) != nil && strings.Contains(ip, ".") {
 			return ip
@@ -1154,25 +1122,25 @@ func getExternalIPv4() string {
 // getExternalIPv6 gets the public IPv6 address via external API
 func getExternalIPv6() string {
 	client := &http.Client{Timeout: 5 * time.Second}
-	
+
 	// Try multiple APIs for redundancy
 	apis := []string{
 		"https://api6.ipify.org",
 		"https://ipv6.icanhazip.com",
 		"https://v6.ident.me",
 	}
-	
+
 	for _, api := range apis {
 		resp, err := client.Get(api)
 		if err != nil {
 			continue
 		}
 		defer resp.Body.Close()
-		
+
 		body := make([]byte, 64)
 		n, _ := resp.Body.Read(body)
 		ip := strings.TrimSpace(string(body[:n]))
-		
+
 		// Validate it's a valid IPv6
 		if net.ParseIP(ip) != nil && strings.Contains(ip, ":") {
 			return ip
@@ -1184,21 +1152,21 @@ func getExternalIPv6() string {
 // GenerateShareURL creates a shareable URL for a node
 func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config map[string]interface{}) (ShareInfo, error) {
 	info := ShareInfo{Remarks: nodeName}
-	
+
 	// Use DetectorService for proper IP detection (handles container environment)
 	detector := NewDetectorService()
 	serverInfo := detector.GetAllServerIPs()
-	
+
 	// Check if node is bound to a specific IP (listen parameter)
 	listenIP := ""
 	if li, ok := config["listen"].(string); ok && li != "" && li != "::" && li != "0.0.0.0" {
 		listenIP = li
 	}
-	
+
 	// If bound to specific IP, determine the public IP for sharing
 	if listenIP != "" {
 		publicIP := ""
-		
+
 		// Case 1: Check if listenIP is a private IP that maps to public IP
 		for _, mapping := range serverInfo.IPv4Mappings {
 			if mapping.LocalIP == listenIP {
@@ -1212,7 +1180,7 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 				break
 			}
 		}
-		
+
 		// Case 2: Check if listenIP is already a public IP (user selected public IP directly)
 		if publicIP == "" {
 			// Check if this IP exists in public IP list
@@ -1229,7 +1197,7 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 				}
 			}
 		}
-		
+
 		// Case 3: Check if listenIP is a public IP that appears in mappings (reverse lookup)
 		if publicIP == "" {
 			for _, mapping := range serverInfo.IPv4Mappings {
@@ -1245,12 +1213,12 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 				}
 			}
 		}
-		
+
 		// Fallback: use listenIP as-is
 		if publicIP == "" {
 			publicIP = listenIP
 		}
-		
+
 		if strings.Contains(publicIP, ":") {
 			// IPv6 only
 			info.ServerIPv6 = publicIP
@@ -1269,7 +1237,7 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 			info.ServerIPv6 = serverInfo.IPv6List[0]
 		}
 	}
-	
+
 	// Determine primary IP for URL generation
 	primaryIP := serverIP
 	if primaryIP == "" {
@@ -1279,19 +1247,19 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 			primaryIP = info.ServerIPv6
 		}
 	}
-	
+
 	protocol := ""
 	if p, ok := config["protocol"].(string); ok {
 		protocol = p
 	}
-	
+
 	port := 443
 	if p, ok := config["port"].(float64); ok {
 		port = int(p)
 	} else if p, ok := config["port"].(int); ok {
 		port = p
 	}
-	
+
 	// URL generator function based on protocol
 	var generateURL func(name, server string, port int, config map[string]interface{}) string
 	switch protocol {
@@ -1310,7 +1278,7 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 	default:
 		return info, fmt.Errorf("暂不支持该协议的分享: %s", protocol)
 	}
-	
+
 	// Generate URLs for both IP versions
 	if info.ServerIPv4 != "" {
 		info.URLIPv4 = generateURL(nodeName+" [IPv4]", info.ServerIPv4, port, config)
@@ -1320,7 +1288,7 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 		info.URLIPv6 = generateURL(nodeName+" [IPv6]", info.ServerIPv6, port, config)
 		info.QRCodeIPv6 = info.URLIPv6
 	}
-	
+
 	// Primary URL - prefer IPv4 for compatibility
 	if info.ServerIPv4 != "" {
 		info.URL = info.URLIPv4
@@ -1331,7 +1299,7 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 		info.URL = generateURL(nodeName, primaryIP, port, config)
 	}
 	info.QRCode = info.URL
-	
+
 	// Generate client JSON config with correct server IP
 	// Use the bound IP (from info.ServerIPv4/IPv6) not the old primaryIP
 	clientServerIP := info.ServerIPv4
@@ -1347,7 +1315,7 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 	if jsonBytes, err := json.MarshalIndent(clientConfig, "", "  "); err == nil {
 		info.JSON = string(jsonBytes)
 	}
-	
+
 	return info, nil
 }
 
@@ -1356,26 +1324,26 @@ func (s *ProxyService) generateVLESSShareURL(name, server string, port int, conf
 	if u, ok := config["uuid"].(string); ok {
 		uuid = u
 	}
-	
+
 	security := ""
 	if sec, ok := config["security"].(string); ok {
 		security = sec
 	}
-	
+
 	flow := ""
 	if f, ok := config["flow"].(string); ok {
 		flow = f
 	}
-	
+
 	transport := "tcp"
 	if t, ok := config["transport"].(string); ok {
 		transport = t
 	}
-	
+
 	// vless://uuid@server:port?params#name
 	// Shadowrocket requires encryption=none
 	params := []string{"encryption=none"}
-	
+
 	if security == "reality" {
 		params = append(params, "security=reality")
 		params = append(params, "type="+transport)
@@ -1418,13 +1386,13 @@ func (s *ProxyService) generateVLESSShareURL(name, server string, port int, conf
 		params = append(params, "security=none")
 		params = append(params, "type="+transport)
 	}
-	
+
 	paramStr := strings.Join(params, "&")
 	encodedName := strings.ReplaceAll(name, " ", "%20")
-	
+
 	// Format server address (wrap IPv6 in brackets)
 	serverAddr := formatServerForURL(server)
-	
+
 	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", uuid, serverAddr, port, paramStr, encodedName)
 }
 
@@ -1442,10 +1410,10 @@ func (s *ProxyService) generateTrojanShareURL(name, server string, port int, con
 	if p, ok := config["password"].(string); ok {
 		password = p
 	}
-	
+
 	// trojan://password@server:port?params#name
 	params := []string{"security=tls"}
-	
+
 	if transport, ok := config["transport"].(string); ok {
 		params = append(params, "type="+transport)
 		if transport == "grpc" {
@@ -1454,14 +1422,14 @@ func (s *ProxyService) generateTrojanShareURL(name, server string, port int, con
 			}
 		}
 	}
-	
+
 	if sn, ok := config["domain"].(string); ok && sn != "" {
 		params = append(params, "sni="+sn)
 	}
-	
+
 	paramStr := strings.Join(params, "&")
 	encodedName := strings.ReplaceAll(name, " ", "%20")
-	
+
 	serverAddr := formatServerForURL(server)
 	return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", password, serverAddr, port, paramStr, encodedName)
 }
@@ -1471,20 +1439,20 @@ func (s *ProxyService) generateHysteria2ShareURL(name, server string, port int, 
 	if p, ok := config["password"].(string); ok {
 		password = p
 	}
-	
+
 	// hysteria2://password@server:port?params#name
 	params := []string{}
-	
+
 	if sn, ok := config["domain"].(string); ok && sn != "" {
 		params = append(params, "sni="+sn)
 	}
-	
+
 	paramStr := ""
 	if len(params) > 0 {
 		paramStr = "?" + strings.Join(params, "&")
 	}
 	encodedName := strings.ReplaceAll(name, " ", "%20")
-	
+
 	serverAddr := formatServerForURL(server)
 	return fmt.Sprintf("hysteria2://%s@%s:%d%s#%s", password, serverAddr, port, paramStr, encodedName)
 }
@@ -1498,12 +1466,12 @@ func (s *ProxyService) generateShadowsocksShareURL(name, server string, port int
 	if m, ok := config["method"].(string); ok {
 		method = m
 	}
-	
+
 	// ss://base64(method:password)@server:port#name
 	auth := fmt.Sprintf("%s:%s", method, password)
 	encoded := base64.StdEncoding.EncodeToString([]byte(auth))
 	encodedName := strings.ReplaceAll(name, " ", "%20")
-	
+
 	serverAddr := formatServerForURL(server)
 	return fmt.Sprintf("ss://%s@%s:%d#%s", encoded, serverAddr, port, encodedName)
 }
@@ -1513,7 +1481,7 @@ func (s *ProxyService) generateVMessShareURL(name, server string, port int, conf
 	if u, ok := config["uuid"].(string); ok {
 		uuid = u
 	}
-	
+
 	// VMess uses a different format - JSON base64 encoded
 	vmessConfig := map[string]interface{}{
 		"v":    "2",
@@ -1526,7 +1494,7 @@ func (s *ProxyService) generateVMessShareURL(name, server string, port int, conf
 		"type": "none",
 		"tls":  "tls",
 	}
-	
+
 	if path, ok := config["path"].(string); ok {
 		vmessConfig["path"] = path
 	}
@@ -1534,10 +1502,10 @@ func (s *ProxyService) generateVMessShareURL(name, server string, port int, conf
 		vmessConfig["host"] = domain
 		vmessConfig["sni"] = domain
 	}
-	
+
 	jsonBytes, _ := json.Marshal(vmessConfig)
 	encoded := base64.StdEncoding.EncodeToString(jsonBytes)
-	
+
 	return "vmess://" + encoded
 }
 
@@ -1550,17 +1518,17 @@ func (s *ProxyService) generateTUICShareURL(name, server string, port int, confi
 	if p, ok := config["password"].(string); ok {
 		password = p
 	}
-	
+
 	// tuic://uuid:password@server:port?params#name
 	params := []string{"congestion_control=bbr", "alpn=h3"}
-	
+
 	if sn, ok := config["domain"].(string); ok && sn != "" {
 		params = append(params, "sni="+sn)
 	}
-	
+
 	paramStr := strings.Join(params, "&")
 	encodedName := strings.ReplaceAll(name, " ", "%20")
-	
+
 	serverAddr := formatServerForURL(server)
 	return fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s", uuid, password, serverAddr, port, paramStr, encodedName)
 }
@@ -1987,4 +1955,3 @@ func getCountryName(code string) string {
 	}
 	return "Unknown"
 }
-

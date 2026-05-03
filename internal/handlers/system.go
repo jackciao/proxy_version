@@ -144,7 +144,6 @@ func GetSuggestedSNI() gin.HandlerFunc {
 	}
 }
 
-
 func ListCertificates(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := db.Query("SELECT id, domain, cert_path, key_path, provider, expires_at, created_at FROM certificates ORDER BY created_at DESC")
@@ -306,7 +305,7 @@ func GetCertProgress() gin.HandlerFunc {
 				"domain":     domain,
 				"status":     "pending",
 				"step":       0,
-				"total_step": 5,
+				"total_step": 6,
 				"step_name":  "等待开始...",
 			})
 			return

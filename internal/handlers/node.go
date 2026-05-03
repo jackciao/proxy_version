@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -39,13 +38,13 @@ func ListNodes(db *sql.DB) gin.HandlerFunc {
 			if err != nil {
 				continue
 			}
-			
+
 			// Parse config JSON string to object
 			var configObj map[string]interface{}
 			if config.Valid && config.String != "" {
 				json.Unmarshal([]byte(config.String), &configObj)
 			}
-			
+
 			nodes = append(nodes, gin.H{
 				"id":           node.ID,
 				"user_id":      node.UserID,
@@ -244,9 +243,6 @@ func StartNode(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 			return
 		}
-
-		// Debug log
-		log.Printf("Starting node %d with warp_enabled=%d", nodeID, warpEnabled)
 
 		proxyService := services.NewProxyService()
 		if err := proxyService.StartNode(nodeID, node.Protocol, config.String, warpEnabled == 1, db); err != nil {
