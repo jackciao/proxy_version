@@ -12,17 +12,15 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/app/data
-      - ./mock_sys/etc/v2ray-agent:/etc/v2ray-agent
-      - ./mock_sys/etc/nginx:/etc/nginx:ro
-      - ./mock_sys/etc/systemd/system:/etc/systemd/system
+      - /etc/v2ray-agent:/etc/v2ray-agent
+      - /etc/nginx:/etc/nginx:ro
+      - /etc/systemd/system:/etc/systemd/system
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./mock_sys/opt/1panel:/opt/1panel:ro
-      - ./mock_sys/www/server:/www/server:ro
-      - ./mock_sys/root/.acme.sh:/root/.acme.sh
+      - /opt/1panel:/opt/1panel
+      - /www/server:/www/server:ro
+      - /root/.acme.sh:/root/.acme.sh
       # Mount host /proc for nsenter to access host network namespace (multi-IP detection)
       - /proc:/host/proc:ro
-      # Mount 1Panel OpenResty directories for camouflage site deployment
-      - /opt/1panel/apps/openresty:/opt/1panel/apps/openresty
     environment:
       - TZ=Asia/Shanghai
       - PORT=8080
