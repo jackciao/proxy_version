@@ -110,6 +110,18 @@ func TestGenerateConfigRequiresDomainForTLSProtocols(t *testing.T) {
 	}
 }
 
+func TestSingBoxSupportsAnyTLSRequiresNewEnoughVersion(t *testing.T) {
+	if singBoxSupportsProtocol("1.10.4", "anytls") {
+		t.Fatal("sing-box 1.10.4 should not support anytls")
+	}
+	if !singBoxSupportsProtocol("1.12.0", "anytls") {
+		t.Fatal("sing-box 1.12.0 should support anytls")
+	}
+	if !singBoxSupportsProtocol("1.13.11", "anytls") {
+		t.Fatal("sing-box 1.13.11 should support anytls")
+	}
+}
+
 func TestTrojanGRPCSingBoxConfigIncludesTLSAndTransport(t *testing.T) {
 	service := NewProxyService()
 	nodeConfig, err := service.GenerateConfig("trojan-grpc-tls", "example.com", 443, emptyNodeConfig())

@@ -27,6 +27,8 @@ type ProxyService struct {
 	configDir string
 }
 
+const bundledSingBoxVersion = "1.13.11"
+
 func NewProxyService() *ProxyService {
 	return &ProxyService{
 		configDir: "/etc/v2ray-agent",
@@ -88,7 +90,7 @@ func (s *ProxyService) GetCoreStatus() CoreStatus {
 func (s *ProxyService) InstallSingBox() error {
 	// Check if already installed
 	status := s.GetCoreStatus()
-	if status.SingBoxInstalled {
+	if status.SingBoxInstalled && compareVersion(status.SingBoxVersion, bundledSingBoxVersion) >= 0 {
 		return nil
 	}
 
@@ -101,17 +103,18 @@ case $ARCH in
     aarch64) ARCH="arm64" ;;
     armv7l) ARCH="armv7" ;;
 esac
-VERSION="1.13.11"
-URL="https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-${ARCH}.tar.gz"
-cd /tmp
-curl -fsSL "$URL" -o sing-box.tar.gz
+	VERSION="%s"
+	URL="https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-${ARCH}.tar.gz"
+	cd /tmp
+	curl -fsSL "$URL" -o sing-box.tar.gz
 tar -xzf sing-box.tar.gz
 mkdir -p /usr/local/bin
 mv sing-box-${VERSION}-linux-${ARCH}/sing-box /usr/local/bin/
 chmod +x /usr/local/bin/sing-box
-rm -rf sing-box.tar.gz sing-box-${VERSION}-linux-${ARCH}
-echo "sing-box installed successfully"
+	rm -rf sing-box.tar.gz sing-box-${VERSION}-linux-${ARCH}
+	echo "sing-box installed successfully"
 `
+	script = fmt.Sprintf(script, bundledSingBoxVersion)
 	cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", "bash", "-c", script)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -555,7 +558,7 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warp
 
 	// Auto-install sing-box if not present
 	status := s.GetCoreStatus()
-	if !status.SingBoxInstalled {
+	if !status.SingBoxInstalled || !singBoxSupportsProtocol(status.SingBoxVersion, protocol) {
 		if err := s.InstallSingBox(); err != nil {
 			return fmt.Errorf("自动安装 sing-box 失败: %v", err)
 		}
@@ -1090,6 +1093,50 @@ func generateBase64Password(size int) string {
 	b := make([]byte, size)
 	rand.Read(b)
 	return base64.StdEncoding.EncodeToString(b)
+}
+
+func singBoxSupportsProtocol(version, protocol string) bool {
+	switch protocol {
+	case "anytls":
+		return compareVersion(version, "1.12.0") >= 0
+	default:
+		return true
+	}
+}
+
+func compareVersion(left, right string) int {
+	leftParts := parseVersionParts(left)
+	rightParts := parseVersionParts(right)
+	for i := 0; i < 3; i++ {
+		if leftParts[i] > rightParts[i] {
+			return 1
+		}
+		if leftParts[i] < rightParts[i] {
+			return -1
+		}
+	}
+	return 0
+}
+
+func parseVersionParts(version string) [3]int {
+	var parts [3]int
+	field := 0
+	for _, c := range version {
+		if c == 'v' && field == 0 && parts[field] == 0 {
+			continue
+		}
+		if c == '.' {
+			if field < 2 {
+				field++
+			}
+			continue
+		}
+		if c < '0' || c > '9' {
+			break
+		}
+		parts[field] = parts[field]*10 + int(c-'0')
+	}
+	return parts
 }
 
 func requiresDomain(protocol string) bool {
