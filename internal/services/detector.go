@@ -110,7 +110,7 @@ func (d *DetectorService) DetectReverseProxy() ReverseProxyResult {
 
 			// 1Panel OpenResty config path (mapped from container)
 			result.OpenRestyConfigPath = "/opt/1panel/apps/openresty/" + strings.TrimPrefix(containerName, "1Panel-openresty-") + "/conf"
-			
+
 			// Try to find actual config path
 			if entries, err := filepath.Glob("/opt/1panel/apps/openresty/*/conf"); err == nil && len(entries) > 0 {
 				result.OpenRestyConfigPath = entries[0]
@@ -242,7 +242,7 @@ func (d *DetectorService) find1PanelOpenRestyContainer() string {
 	if err != nil {
 		return ""
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "1Panel-openresty") {
@@ -258,7 +258,7 @@ func (d *DetectorService) findOpenRestyContainer() string {
 	if err != nil {
 		return ""
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
 		parts := strings.Split(line, "\t")
@@ -523,12 +523,16 @@ func (d *DetectorService) GetAllServerIPs() ServerIPInfo {
 	// Fallback: Get default public IP if no IPs detected yet
 	if len(info.IPv4List) == 0 {
 		if publicIP := d.getExternalIP("https://api4.ipify.org"); publicIP != "" {
-			info.IPv4List = append(info.IPv4List, publicIP)
+			if ip := net.ParseIP(publicIP); ip != nil && ip.To4() != nil && !isWarpOrVpnIP(publicIP) {
+				info.IPv4List = append(info.IPv4List, publicIP)
+			}
 		}
 	}
 	if len(info.IPv6List) == 0 {
 		if publicIP := d.getExternalIP("https://api6.ipify.org"); publicIP != "" {
-			info.IPv6List = append(info.IPv6List, publicIP)
+			if ip := net.ParseIP(publicIP); ip != nil && ip.To4() == nil && !isWarpOrVpnIP(publicIP) {
+				info.IPv6List = append(info.IPv6List, publicIP)
+			}
 		}
 	}
 
@@ -751,7 +755,7 @@ func (d *DetectorService) ResolveBindAddress(listen string) string {
 		return listen
 	}
 
-	if local := d.GetLocalIPForPublic(listen); local != "" {
+	if local := d.GetMappedLocalIPForPublic(listen); local != "" {
 		return local
 	}
 
@@ -768,40 +772,26 @@ func (d *DetectorService) ResolveBindAddress(listen string) string {
 	return listen
 }
 
-// GetLocalIPForPublic returns the local IP that should be used for binding
+// GetMappedLocalIPForPublic returns the local IP that should be used for binding
 // when the user selects a public IP. This handles NAT environments where
 // the public IP is not directly available on the interface.
-func (d *DetectorService) GetLocalIPForPublic(publicIP string) string {
+func (d *DetectorService) GetMappedLocalIPForPublic(publicIP string) string {
 	info := d.GetAllServerIPs()
-	
+
 	// Check IPv4 mappings
 	for _, mapping := range info.IPv4Mappings {
 		if mapping.PublicIP == publicIP {
 			return mapping.LocalIP
 		}
 	}
-	
+
 	// Check IPv6 mappings
 	for _, mapping := range info.IPv6Mappings {
 		if mapping.PublicIP == publicIP {
 			return mapping.LocalIP
 		}
 	}
-	
-	// If no mapping found, the IP might be directly available on interface
-	// Check if it exists in the public IP list (direct public IP)
-	for _, ip := range info.IPv4List {
-		if ip == publicIP {
-			return publicIP // Direct public IP, use as-is
-		}
-	}
-	for _, ip := range info.IPv6List {
-		if ip == publicIP {
-			return publicIP // Direct public IP, use as-is
-		}
-	}
-	
-	// Fallback: return empty to use "::" (all interfaces)
+
 	return ""
 }
 
@@ -821,9 +811,7 @@ func (d *DetectorService) CheckPortAvailability(port int, ip string) PortCheckRe
 		IP:   ip,
 	}
 
-	// Use netstat to check port since container uses host network mode
-	cmd := exec.Command("netstat", "-tlnp")
-	output, err := cmd.CombinedOutput()
+	output, err := d.hostTCPListeners()
 	if err != nil {
 		// Fallback: try to bind to the port directly
 		addr := fmt.Sprintf(":%d", port)
@@ -846,61 +834,119 @@ func (d *DetectorService) CheckPortAvailability(port int, ip string) PortCheckRe
 	}
 
 	lines := strings.Split(string(output), "\n")
-	portStr := fmt.Sprintf(":%d", port)
-	
 	for _, line := range lines {
-		if !strings.Contains(line, portStr) {
-			continue
-		}
-		
-		// Check if this line matches the port we're looking for
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
-		
+
 		localAddr := fields[3]
-		
-		// Parse the local address
-		if !strings.Contains(localAddr, portStr) {
+		if !listenAddressConflicts(localAddr, port, ip) {
 			continue
 		}
-		
-		// Check IP-specific binding
-		if ip == "" {
-			// User didn't specify IP, any binding means port is occupied
-			result.Available = false
-			result.OccupiedBy = "端口已被占用"
-			if len(fields) >= 7 {
-				result.ProcessName = fields[6]
-			}
-			return result
+
+		result.Available = false
+		result.OccupiedBy = "端口已被占用"
+		if len(fields) >= 7 {
+			result.ProcessName = fields[6]
 		}
-		
-		// User specified a specific IP
-		if strings.Contains(ip, ":") {
-			// IPv6 - check if binding is to this specific IPv6 or all IPv6 (:::port)
-			if strings.HasPrefix(localAddr, ":::") || strings.Contains(localAddr, "["+ip+"]") {
-				result.Available = false
-				result.OccupiedBy = "端口已被占用"
-				if len(fields) >= 7 {
-					result.ProcessName = fields[6]
-				}
-				return result
-			}
-		} else {
-			// IPv4 - check if binding is to this specific IPv4 or all IPv4 (0.0.0.0:port)
-			if strings.HasPrefix(localAddr, "0.0.0.0:") || strings.HasPrefix(localAddr, ip+":") {
-				result.Available = false
-				result.OccupiedBy = "端口已被占用"
-				if len(fields) >= 7 {
-					result.ProcessName = fields[6]
-				}
-				return result
-			}
-		}
+		return result
 	}
 
 	result.Available = true
 	return result
+}
+
+func (d *DetectorService) hostTCPListeners() ([]byte, error) {
+	commands := [][]string{
+		{"nsenter", "--net=/host/proc/1/ns/net", "ss", "-H", "-tlnp"},
+		{"ss", "-H", "-tlnp"},
+		{"netstat", "-tlnp"},
+	}
+	var lastErr error
+	for _, args := range commands {
+		cmd := exec.Command(args[0], args[1:]...)
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return output, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func listenAddressConflicts(localAddr string, port int, selectedIP string) bool {
+	host, listenPort, ok := splitListenAddress(localAddr)
+	if !ok || listenPort != port {
+		return false
+	}
+	if selectedIP == "" {
+		return true
+	}
+
+	selected := net.ParseIP(selectedIP)
+	if selected == nil {
+		return false
+	}
+
+	if isWildcardListenHost(host) {
+		if host == "0.0.0.0" {
+			return selected.To4() != nil
+		}
+		return true
+	}
+
+	listenIP := net.ParseIP(strings.Trim(host, "[]"))
+	return listenIP != nil && listenIP.Equal(selected)
+}
+
+func splitListenAddress(localAddr string) (string, int, bool) {
+	localAddr = strings.TrimSpace(localAddr)
+	if localAddr == "" {
+		return "", 0, false
+	}
+
+	if strings.HasPrefix(localAddr, "[") {
+		end := strings.LastIndex(localAddr, "]:")
+		if end == -1 {
+			return "", 0, false
+		}
+		port, ok := parsePort(localAddr[end+2:])
+		return localAddr[1:end], port, ok
+	}
+
+	idx := strings.LastIndex(localAddr, ":")
+	if idx == -1 {
+		return "", 0, false
+	}
+
+	port, ok := parsePort(localAddr[idx+1:])
+	if !ok {
+		return "", 0, false
+	}
+
+	host := localAddr[:idx]
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	return strings.Trim(host, "[]"), port, true
+}
+
+func parsePort(value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	port := 0
+	for _, c := range value {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		port = port*10 + int(c-'0')
+	}
+	return port, true
+}
+
+func isWildcardListenHost(host string) bool {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	return host == "*" || host == "::" || host == "0.0.0.0"
 }

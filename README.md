@@ -7,7 +7,7 @@
 - 🎨 **现代化 Web 界面** - 简洁美观的用户界面
 - 🔐 **JWT 用户认证** - 安全的身份验证系统
 - 🔍 **智能环境检测** - 自动识别 Nginx/OpenResty/1Panel/宝塔面板
-- 📡 **多协议支持** - VLESS Reality/Vision、VMess、Trojan、Hysteria2、TUIC
+- 📡 **多协议支持** - VLESS Reality/Vision、AnyTLS、VMess、Trojan、Hysteria2、TUIC
 - 📜 **证书管理** - 集成 acme.sh 自动申请和续签 SSL 证书
 - 🌐 **WARP 集成** - 支持 Cloudflare WARP 流量代理
 - 🐳 **Docker 部署** - 容器化部署，环境隔离

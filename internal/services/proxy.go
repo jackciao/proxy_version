@@ -11,6 +11,7 @@ import (
 	mrand "math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,7 +101,7 @@ case $ARCH in
     aarch64) ARCH="arm64" ;;
     armv7l) ARCH="armv7" ;;
 esac
-VERSION="1.10.4"
+VERSION="1.13.11"
 URL="https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-${ARCH}.tar.gz"
 cd /tmp
 curl -fsSL "$URL" -o sing-box.tar.gz
@@ -256,6 +257,15 @@ func (s *ProxyService) GetSupportedProtocols() []ProtocolInfo {
 			Transport:   "tcp",
 		},
 		{
+			ID:          "anytls",
+			Name:        "AnyTLS + TLS",
+			Description: "基于真实 TLS 的新协议，内置分包填充与连接复用，适合追求低特征和高性能的线路",
+			Recommended: true,
+			NeedsDomain: true,
+			NeedsCert:   true,
+			Transport:   "tcp",
+		},
+		{
 			ID:          "vless-ws-tls",
 			Name:        "VLESS + WebSocket + TLS",
 			Description: "支持 CDN 中转，适合被墙 IP，需要域名",
@@ -291,7 +301,15 @@ func (s *ProxyService) GenerateConfig(protocol, domain string, port int, config 
 		config.UUID = generateUUID()
 	}
 	if config.Password == "" {
-		config.Password = generatePassword()
+		if protocol == "anytls" {
+			config.Password = generateBase64Password(16)
+		} else {
+			config.Password = generatePassword()
+		}
+	}
+
+	if requiresDomain(protocol) && strings.TrimSpace(domain) == "" {
+		return nil, fmt.Errorf("该协议需要域名和有效 TLS 证书，请先填写已解析到本机的域名")
 	}
 
 	switch protocol {
@@ -303,6 +321,8 @@ func (s *ProxyService) GenerateConfig(protocol, domain string, port int, config 
 		return s.generateVLESSVisionConfig(domain, port, config)
 	case "vless-ws-tls", "vless-ws":
 		return s.generateVLESSWSConfig(domain, port, config)
+	case "anytls":
+		return s.generateAnyTLSConfig(domain, port, config)
 	case "trojan-tcp-tls", "trojan":
 		return s.generateTrojanConfig(domain, port, config, "tcp")
 	case "trojan-grpc-tls":
@@ -365,7 +385,7 @@ func (s *ProxyService) generateVLESSRealityConfig(domain string, port int, confi
 }
 
 func (s *ProxyService) generateVLESSVisionConfig(domain string, port int, config models.NodeConfig) (map[string]interface{}, error) {
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"protocol":  "vless",
 		"uuid":      config.UUID,
 		"flow":      "xtls-rprx-vision",
@@ -375,14 +395,18 @@ func (s *ProxyService) generateVLESSVisionConfig(domain string, port int, config
 		"security":  "tls",
 		"certPath":  config.CertPath,
 		"keyPath":   config.KeyPath,
-	}, nil
+	}
+	if config.Listen != "" {
+		result["listen"] = config.Listen
+	}
+	return result, nil
 }
 
 func (s *ProxyService) generateVLESSWSConfig(domain string, port int, config models.NodeConfig) (map[string]interface{}, error) {
 	if config.Path == "" {
 		config.Path = "/" + generateShortID()
 	}
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"protocol":  "vless",
 		"uuid":      config.UUID,
 		"port":      port,
@@ -392,14 +416,37 @@ func (s *ProxyService) generateVLESSWSConfig(domain string, port int, config mod
 		"security":  "tls",
 		"certPath":  config.CertPath,
 		"keyPath":   config.KeyPath,
-	}, nil
+	}
+	if config.Listen != "" {
+		result["listen"] = config.Listen
+	}
+	return result, nil
+}
+
+func (s *ProxyService) generateAnyTLSConfig(domain string, port int, config models.NodeConfig) (map[string]interface{}, error) {
+	result := map[string]interface{}{
+		"protocol":  "anytls",
+		"password":  config.Password,
+		"port":      port,
+		"domain":    domain,
+		"security":  "tls",
+		"certPath":  config.CertPath,
+		"keyPath":   config.KeyPath,
+		"minIdle":   5,
+		"checkIdle": "30s",
+		"idleTime":  "30s",
+	}
+	if config.Listen != "" {
+		result["listen"] = config.Listen
+	}
+	return result, nil
 }
 
 func (s *ProxyService) generateVMessWSConfig(domain string, port int, config models.NodeConfig) (map[string]interface{}, error) {
 	if config.Path == "" {
 		config.Path = "/" + generateShortID()
 	}
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"protocol":  "vmess",
 		"uuid":      config.UUID,
 		"port":      port,
@@ -409,7 +456,11 @@ func (s *ProxyService) generateVMessWSConfig(domain string, port int, config mod
 		"security":  "tls",
 		"certPath":  config.CertPath,
 		"keyPath":   config.KeyPath,
-	}, nil
+	}
+	if config.Listen != "" {
+		result["listen"] = config.Listen
+	}
+	return result, nil
 }
 
 func (s *ProxyService) generateTrojanConfig(domain string, port int, config models.NodeConfig, transport string) (map[string]interface{}, error) {
@@ -427,8 +478,11 @@ func (s *ProxyService) generateTrojanConfig(domain string, port int, config mode
 	if transport == "grpc" {
 		result["serviceName"] = config.Path
 		if result["serviceName"] == "" {
-			result["serviceName"] = "trojan-grpc"
+			result["serviceName"] = generateRandomServiceName()
 		}
+	}
+	if config.Listen != "" {
+		result["listen"] = config.Listen
 	}
 
 	return result, nil
@@ -442,7 +496,7 @@ func (s *ProxyService) generateHysteria2Config(domain string, port int, config m
 		config.DownMbps = 100
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"protocol": "hysteria2",
 		"password": config.Password,
 		"port":     port,
@@ -451,7 +505,11 @@ func (s *ProxyService) generateHysteria2Config(domain string, port int, config m
 		"downMbps": config.DownMbps,
 		"certPath": config.CertPath,
 		"keyPath":  config.KeyPath,
-	}, nil
+	}
+	if config.Listen != "" {
+		result["listen"] = config.Listen
+	}
+	return result, nil
 }
 
 func (s *ProxyService) generateTUICConfig(domain string, port int, config models.NodeConfig) (map[string]interface{}, error) {
@@ -459,7 +517,7 @@ func (s *ProxyService) generateTUICConfig(domain string, port int, config models
 		config.CongestionCtrl = "bbr"
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"protocol":          "tuic",
 		"uuid":              config.UUID,
 		"password":          config.Password,
@@ -468,14 +526,18 @@ func (s *ProxyService) generateTUICConfig(domain string, port int, config models
 		"congestionControl": config.CongestionCtrl,
 		"certPath":          config.CertPath,
 		"keyPath":           config.KeyPath,
-	}, nil
+	}
+	if config.Listen != "" {
+		result["listen"] = config.Listen
+	}
+	return result, nil
 }
 
 func (s *ProxyService) generateShadowsocks2022Config(domain string, port int, config models.NodeConfig) (map[string]interface{}, error) {
 	// Generate 32-byte key for 2022-blake3-aes-256-gcm
 	key := make([]byte, 32)
 	rand.Read(key)
-	keyStr := hex.EncodeToString(key)
+	keyStr := base64.StdEncoding.EncodeToString(key)
 
 	return map[string]interface{}{
 		"protocol": "shadowsocks",
@@ -670,13 +732,77 @@ func (s *ProxyService) copyCertsToHost() {
 	}
 }
 
+func configString(config map[string]interface{}, key, fallback string) string {
+	if v, ok := config[key].(string); ok && v != "" {
+		return v
+	}
+	return fallback
+}
+
+func configInt(config map[string]interface{}, key string, fallback int) int {
+	switch v := config[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case string:
+		n := 0
+		if v == "" {
+			return fallback
+		}
+		for _, c := range v {
+			if c < '0' || c > '9' {
+				return fallback
+			}
+			n = n*10 + int(c-'0')
+		}
+		return n
+	}
+	return fallback
+}
+
+func listenIPFromConfig(config map[string]interface{}) string {
+	listenIP := "::"
+	if li, ok := config["listen"].(string); ok && li != "" {
+		detector := NewDetectorService()
+		listenIP = detector.ResolveBindAddress(li)
+	}
+	return listenIP
+}
+
+func tlsConfigFromNode(config map[string]interface{}, alpn []string) map[string]interface{} {
+	domain := configString(config, "domain", "")
+	certPath := configString(config, "certPath", "")
+	keyPath := configString(config, "keyPath", "")
+
+	tlsConfig := map[string]interface{}{
+		"enabled": true,
+	}
+	if certPath != "" && keyPath != "" {
+		tlsConfig["certificate_path"] = certPath
+		tlsConfig["key_path"] = keyPath
+	} else if domain != "" {
+		tlsConfig["certificate_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.crt", domain)
+		tlsConfig["key_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.key", domain)
+	} else {
+		tlsConfig["certificate_path"] = "/etc/v2ray-agent/tls/selfsigned.crt"
+		tlsConfig["key_path"] = "/etc/v2ray-agent/tls/selfsigned.key"
+	}
+	if domain != "" {
+		tlsConfig["server_name"] = domain
+	}
+	if len(alpn) > 0 {
+		tlsConfig["alpn"] = alpn
+	}
+	return tlsConfig
+}
+
 // generateSingBoxConfig generates a sing-box compatible configuration
 func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled bool, db interface{}) (map[string]interface{}, error) {
 
-	port := 443
-	if p, ok := config["port"].(float64); ok {
-		port = int(p)
-	}
+	port := configInt(config, "port", 443)
 
 	protocol := ""
 	if p, ok := config["protocol"].(string); ok {
@@ -714,11 +840,10 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			userFlow = ""
 		}
 
-		// Get listen IP from config, default to all interfaces
-		listenIP := "::"
-		if li, ok := config["listen"].(string); ok && li != "" {
-			detector := NewDetectorService()
-			listenIP = detector.ResolveBindAddress(li)
+		listenIP := listenIPFromConfig(config)
+		user := map[string]interface{}{"uuid": uuid}
+		if userFlow != "" {
+			user["flow"] = userFlow
 		}
 
 		inbound = map[string]interface{}{
@@ -726,9 +851,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			"tag":         "vless-in",
 			"listen":      listenIP,
 			"listen_port": port,
-			"users": []map[string]interface{}{
-				{"uuid": uuid, "flow": userFlow},
-			},
+			"users":       []map[string]interface{}{user},
 		}
 
 		// Add transport config
@@ -783,43 +906,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 				},
 			}
 		} else if security == "tls" {
-			// Regular TLS for VLESS
-			domain := ""
-			if d, ok := config["domain"].(string); ok {
-				domain = d
-			}
-			certPath := ""
-			keyPath := ""
-			if cp, ok := config["certPath"].(string); ok {
-				certPath = cp
-			}
-			if kp, ok := config["keyPath"].(string); ok {
-				keyPath = kp
-			}
-
-			tlsConfig := map[string]interface{}{
-				"enabled": true,
-			}
-
-			// Use domain-based certificate paths or explicitly provided paths
-			if certPath != "" && keyPath != "" {
-				tlsConfig["certificate_path"] = certPath
-				tlsConfig["key_path"] = keyPath
-			} else if domain != "" {
-				// Use domain-based certificate from /etc/v2ray-agent/tls/
-				tlsConfig["certificate_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.crt", domain)
-				tlsConfig["key_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.key", domain)
-			} else {
-				// Fallback to self-signed (will fail if not exists)
-				tlsConfig["certificate_path"] = "/etc/v2ray-agent/tls/selfsigned.crt"
-				tlsConfig["key_path"] = "/etc/v2ray-agent/tls/selfsigned.key"
-			}
-
-			if domain != "" {
-				tlsConfig["server_name"] = domain
-			}
-
-			inbound["tls"] = tlsConfig
+			inbound["tls"] = tlsConfigFromNode(config, nil)
 		}
 
 	case "trojan":
@@ -827,14 +914,56 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		if p, ok := config["password"].(string); ok {
 			password = p
 		}
+		transport := configString(config, "transport", "tcp")
 		inbound = map[string]interface{}{
 			"type":        "trojan",
 			"tag":         "trojan-in",
-			"listen":      "::",
+			"listen":      listenIPFromConfig(config),
 			"listen_port": port,
 			"users": []map[string]interface{}{
 				{"password": password},
 			},
+			"tls": tlsConfigFromNode(config, nil),
+		}
+		if transport == "grpc" {
+			serviceName := configString(config, "serviceName", "grpc")
+			inbound["transport"] = map[string]interface{}{
+				"type":         "grpc",
+				"service_name": serviceName,
+			}
+		}
+
+	case "vmess":
+		uuid := configString(config, "uuid", "")
+		path := configString(config, "path", "/vmess-ws")
+		inbound = map[string]interface{}{
+			"type":        "vmess",
+			"tag":         "vmess-in",
+			"listen":      listenIPFromConfig(config),
+			"listen_port": port,
+			"users": []map[string]interface{}{
+				{"uuid": uuid, "alterId": 0},
+			},
+			"transport": map[string]interface{}{
+				"type":                   "ws",
+				"path":                   path,
+				"max_early_data":         2048,
+				"early_data_header_name": "Sec-WebSocket-Protocol",
+			},
+			"tls": tlsConfigFromNode(config, nil),
+		}
+
+	case "anytls":
+		password := configString(config, "password", "")
+		inbound = map[string]interface{}{
+			"type":        "anytls",
+			"tag":         "anytls-in",
+			"listen":      listenIPFromConfig(config),
+			"listen_port": port,
+			"users": []map[string]interface{}{
+				{"name": "proxy_version", "password": password},
+			},
+			"tls": tlsConfigFromNode(config, nil),
 		}
 
 	case "hysteria2":
@@ -842,53 +971,18 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		if p, ok := config["password"].(string); ok {
 			password = p
 		}
-		domain := ""
-		if d, ok := config["domain"].(string); ok {
-			domain = d
-		}
-		certPath := ""
-		keyPath := ""
-		if cp, ok := config["certPath"].(string); ok {
-			certPath = cp
-		}
-		if kp, ok := config["keyPath"].(string); ok {
-			keyPath = kp
-		}
-
-		tlsConfig := map[string]interface{}{
-			"enabled": true,
-		}
-
-		// Use domain-based certificate paths or explicitly provided paths
-		if certPath != "" && keyPath != "" {
-			tlsConfig["certificate_path"] = certPath
-			tlsConfig["key_path"] = keyPath
-		} else if domain != "" {
-			// Use domain-based certificate from /etc/v2ray-agent/tls/
-			tlsConfig["certificate_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.crt", domain)
-			tlsConfig["key_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.key", domain)
-		} else {
-			// Fallback to self-signed (will fail if not exists)
-			tlsConfig["certificate_path"] = "/etc/v2ray-agent/tls/selfsigned.crt"
-			tlsConfig["key_path"] = "/etc/v2ray-agent/tls/selfsigned.key"
-		}
-
-		if domain != "" {
-			tlsConfig["server_name"] = domain
-		}
-
-		tlsConfig["alpn"] = []string{"h3"}
+		tlsConfig := tlsConfigFromNode(config, []string{"h3"})
 
 		inbound = map[string]interface{}{
 			"type":        "hysteria2",
 			"tag":         "hy2-in",
-			"listen":      "::",
+			"listen":      listenIPFromConfig(config),
 			"listen_port": port,
 			"users": []map[string]interface{}{
 				{"password": password},
 			},
-			"up_mbps":   100,
-			"down_mbps": 100,
+			"up_mbps":   configInt(config, "upMbps", 100),
+			"down_mbps": configInt(config, "downMbps", 100),
 			"tls":       tlsConfig,
 		}
 
@@ -904,7 +998,7 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		inbound = map[string]interface{}{
 			"type":        "shadowsocks",
 			"tag":         "ss-in",
-			"listen":      "::",
+			"listen":      listenIPFromConfig(config),
 			"listen_port": port,
 			"method":      method,
 			"password":    password,
@@ -919,48 +1013,17 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		if p, ok := config["password"].(string); ok {
 			password = p
 		}
-		domain := ""
-		if d, ok := config["domain"].(string); ok {
-			domain = d
-		}
-		certPath := ""
-		keyPath := ""
-		if cp, ok := config["certPath"].(string); ok {
-			certPath = cp
-		}
-		if kp, ok := config["keyPath"].(string); ok {
-			keyPath = kp
-		}
-
-		tlsConfig := map[string]interface{}{
-			"enabled": true,
-			"alpn":    []string{"h3"},
-		}
-
-		if certPath != "" && keyPath != "" {
-			tlsConfig["certificate_path"] = certPath
-			tlsConfig["key_path"] = keyPath
-		} else if domain != "" {
-			tlsConfig["certificate_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.crt", domain)
-			tlsConfig["key_path"] = fmt.Sprintf("/etc/v2ray-agent/tls/%s.key", domain)
-		} else {
-			tlsConfig["certificate_path"] = "/etc/v2ray-agent/tls/selfsigned.crt"
-			tlsConfig["key_path"] = "/etc/v2ray-agent/tls/selfsigned.key"
-		}
-
-		if domain != "" {
-			tlsConfig["server_name"] = domain
-		}
+		tlsConfig := tlsConfigFromNode(config, []string{"h3"})
 
 		inbound = map[string]interface{}{
 			"type":        "tuic",
 			"tag":         "tuic-in",
-			"listen":      "::",
+			"listen":      listenIPFromConfig(config),
 			"listen_port": port,
 			"users": []map[string]interface{}{
 				{"uuid": uuid, "password": password},
 			},
-			"congestion_control": "bbr",
+			"congestion_control": configString(config, "congestionControl", configString(config, "congestion", "bbr")),
 			"tls":                tlsConfig,
 		}
 
@@ -1021,6 +1084,23 @@ func generatePassword() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func generateBase64Password(size int) string {
+	b := make([]byte, size)
+	rand.Read(b)
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func requiresDomain(protocol string) bool {
+	switch protocol {
+	case "vless-vision-tls", "vless-vision", "vless-ws-tls", "vless-ws",
+		"trojan-tcp-tls", "trojan", "trojan-grpc-tls",
+		"hysteria2", "tuic-v5", "tuic", "vmess-ws-tls", "vmess-ws", "anytls":
+		return true
+	default:
+		return false
+	}
 }
 
 func generateX25519Keys() (string, string) {
@@ -1311,6 +1391,8 @@ func (s *ProxyService) GenerateShareURL(nodeName string, serverIP string, config
 		generateURL = s.generateVMessShareURL
 	case "tuic":
 		generateURL = s.generateTUICShareURL
+	case "anytls":
+		generateURL = s.generateAnyTLSShareURL
 	default:
 		return info, fmt.Errorf("暂不支持该协议的分享: %s", protocol)
 	}
@@ -1569,7 +1651,42 @@ func (s *ProxyService) generateTUICShareURL(name, server string, port int, confi
 	return fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s", uuid, password, serverAddr, port, paramStr, encodedName)
 }
 
+func (s *ProxyService) generateAnyTLSShareURL(name, server string, port int, config map[string]interface{}) string {
+	password := configString(config, "password", "")
+	params := url.Values{}
+	params.Set("security", "tls")
+	if sn := configString(config, "domain", ""); sn != "" {
+		params.Set("sni", sn)
+	}
+
+	serverAddr := formatServerForURL(server)
+	return fmt.Sprintf("anytls://%s@%s:%d?%s#%s",
+		url.QueryEscape(password),
+		serverAddr,
+		port,
+		params.Encode(),
+		url.QueryEscape(name),
+	)
+}
+
 func (s *ProxyService) generateClientConfig(server string, port int, config map[string]interface{}) map[string]interface{} {
+	if protocol, _ := config["protocol"].(string); protocol == "anytls" {
+		return map[string]interface{}{
+			"type":                        "anytls",
+			"tag":                         "proxy",
+			"server":                      server,
+			"server_port":                 port,
+			"password":                    configString(config, "password", ""),
+			"idle_session_check_interval": configString(config, "checkIdle", "30s"),
+			"idle_session_timeout":        configString(config, "idleTime", "30s"),
+			"min_idle_session":            configInt(config, "minIdle", 5),
+			"tls": map[string]interface{}{
+				"enabled":     true,
+				"server_name": configString(config, "domain", ""),
+			},
+		}
+	}
+
 	// Generate a basic client-side config for reference
 	return map[string]interface{}{
 		"server":   server,

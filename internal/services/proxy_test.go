@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"proxy_version/internal/models"
+
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -67,6 +69,94 @@ func TestGenerateSingBoxConfigForVLESSRealityVision(t *testing.T) {
 	if tlsConfig["server_name"] != "www.apple.com" {
 		t.Fatal("reality server_name was not preserved")
 	}
+}
+
+func TestGenerateConfigForAnyTLSUsesTLSAndShareablePassword(t *testing.T) {
+	service := NewProxyService()
+
+	nodeConfig, err := service.GenerateConfig("anytls", "example.com", 443, emptyNodeConfig())
+	if err != nil {
+		t.Fatalf("generate anytls config: %v", err)
+	}
+	if nodeConfig["protocol"] != "anytls" {
+		t.Fatalf("protocol = %v, want anytls", nodeConfig["protocol"])
+	}
+	password, ok := nodeConfig["password"].(string)
+	if !ok || password == "" {
+		t.Fatal("anytls password was not generated")
+	}
+	if _, err := base64.StdEncoding.DecodeString(password); err != nil {
+		t.Fatalf("anytls password should be base64 encoded: %v", err)
+	}
+
+	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, nil)
+	if err != nil {
+		t.Fatalf("generate sing-box config: %v", err)
+	}
+	inbound := singboxConfig["inbounds"].([]map[string]interface{})[0]
+	if inbound["type"] != "anytls" {
+		t.Fatalf("inbound type = %v, want anytls", inbound["type"])
+	}
+	tlsConfig := inbound["tls"].(map[string]interface{})
+	if tlsConfig["server_name"] != "example.com" {
+		t.Fatalf("server_name = %v, want example.com", tlsConfig["server_name"])
+	}
+}
+
+func TestGenerateConfigRequiresDomainForTLSProtocols(t *testing.T) {
+	service := NewProxyService()
+	if _, err := service.GenerateConfig("anytls", "", 443, emptyNodeConfig()); err == nil {
+		t.Fatal("anytls without domain should be rejected")
+	}
+}
+
+func TestTrojanGRPCSingBoxConfigIncludesTLSAndTransport(t *testing.T) {
+	service := NewProxyService()
+	nodeConfig, err := service.GenerateConfig("trojan-grpc-tls", "example.com", 443, emptyNodeConfig())
+	if err != nil {
+		t.Fatalf("generate trojan config: %v", err)
+	}
+	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, nil)
+	if err != nil {
+		t.Fatalf("generate sing-box config: %v", err)
+	}
+	inbound := singboxConfig["inbounds"].([]map[string]interface{})[0]
+	if _, ok := inbound["tls"].(map[string]interface{}); !ok {
+		t.Fatal("trojan inbound missing tls")
+	}
+	transport := inbound["transport"].(map[string]interface{})
+	if transport["type"] != "grpc" {
+		t.Fatalf("transport type = %v, want grpc", transport["type"])
+	}
+}
+
+func TestListenAddressConflictsHandlesIPv6AndWildcards(t *testing.T) {
+	tests := []struct {
+		name      string
+		localAddr string
+		port      int
+		selected  string
+		want      bool
+	}{
+		{"exact ipv6 bracket", "[2603:c021:4005:dbab::1]:443", 443, "2603:c021:4005:dbab::1", true},
+		{"exact ipv6 netstat", "2603:c021:4005:dbab::1:443", 443, "2603:c021:4005:dbab::1", true},
+		{"ipv6 wildcard", "[::]:443", 443, "2603:c021:4005:dbab::1", true},
+		{"netstat ipv6 wildcard", ":::443", 443, "2603:c021:4005:dbab::1", true},
+		{"ipv4 wildcard does not block ipv6", "0.0.0.0:443", 443, "2603:c021:4005:dbab::1", false},
+		{"ipv4 wildcard blocks ipv4", "0.0.0.0:443", 443, "203.0.113.10", true},
+		{"wrong port", "[::]:8443", 443, "2603:c021:4005:dbab::1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := listenAddressConflicts(tt.localAddr, tt.port, tt.selected); got != tt.want {
+				t.Fatalf("listenAddressConflicts(%q, %d, %q) = %v, want %v", tt.localAddr, tt.port, tt.selected, got, tt.want)
+			}
+		})
+	}
+}
+
+func emptyNodeConfig() models.NodeConfig {
+	return models.NodeConfig{}
 }
 
 func TestValidateCamouflageDomainRejectsUnsafeNames(t *testing.T) {

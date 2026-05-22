@@ -242,8 +242,8 @@ class App {
                     desc.innerHTML = p.description + (p.recommended ? ' <span class="recommended">✓ 推荐</span>' : '');
                     desc.classList.add('show');
                     dg.style.display = p.needs_domain ? 'block' : 'none';
-                    // Show IP binding for Reality protocols
-                    if (ipg) ipg.style.display = opt.value.includes('reality') ? 'block' : 'none';
+                    // Show IP binding for direct TCP protocols that commonly use 443.
+                    if (ipg) ipg.style.display = (opt.value.includes('reality') || opt.value.includes('anytls')) ? 'block' : 'none';
                     if (!p.needs_domain) document.getElementById('node-domain').value = ''
                 } else {
                     desc.classList.remove('show');
@@ -414,6 +414,7 @@ class App {
         const isWs = protocol.includes('ws');
         const isHysteria2 = protocol.includes('hysteria');
         const isTuic = protocol.includes('tuic');
+        const isAnyTLS = protocol.includes('anytls');
 
         // UUID for VLESS and TUIC
         if (isVless || isTuic) {
@@ -421,8 +422,8 @@ class App {
             document.getElementById('edit-config-uuid').value = config.uuid || '';
         }
 
-        // Password for Hysteria2 and TUIC
-        if (isHysteria2 || isTuic) {
+        // Password for password-based protocols
+        if (isHysteria2 || isTuic || isAnyTLS) {
             document.getElementById('edit-password-group').style.display = 'block';
             document.getElementById('edit-config-password').value = config.password || '';
         }
@@ -480,6 +481,7 @@ class App {
         const isWs = protocol.includes('ws');
         const isHysteria2 = protocol.includes('hysteria');
         const isTuic = protocol.includes('tuic');
+        const isAnyTLS = protocol.includes('anytls');
 
         // UUID
         if (isVless || isTuic) {
@@ -488,7 +490,7 @@ class App {
         }
 
         // Password
-        if (isHysteria2 || isTuic) {
+        if (isHysteria2 || isTuic || isAnyTLS) {
             const password = document.getElementById('edit-config-password').value;
             if (password) config.password = password;
         }

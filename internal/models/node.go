@@ -11,6 +11,7 @@ const (
 	ProtocolTrojan       = "trojan"
 	ProtocolHysteria2    = "hysteria2"
 	ProtocolTUIC         = "tuic"
+	ProtocolAnyTLS       = "anytls"
 )
 
 // Node status
