@@ -1027,7 +1027,7 @@ const streamVaultIndexHTML = `<!DOCTYPE html>
     <title>Gotee 网盘 - 安全的个人云存储</title>
     <meta name="description" content="Gotee 网盘，安全、稳定、可长期保存的私人网盘。">
     <style>
-        *{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#1f2937;background:#f5fbff;min-height:100vh}a{text-decoration:none;color:inherit}.topbar{height:76px;background:#fff;display:flex;align-items:center;padding:0 9vw;box-shadow:0 1px 0 rgba(15,23,42,.06);position:sticky;top:0;z-index:20}.brand{display:flex;align-items:center;gap:12px;font-size:26px;font-weight:700;color:#23509b}.mark{width:42px;height:42px;border-radius:8px;background:#2457a8;color:white;display:grid;place-items:center;font-size:20px;font-weight:800;letter-spacing:.5px}.hero{min-height:calc(100vh - 76px);display:grid;grid-template-columns:minmax(0,1.1fr) 420px;gap:64px;align-items:center;padding:58px 12vw 70px;background:linear-gradient(110deg,#fdfbff 0%,#f1fbff 46%,#f4fbff 100%);overflow:hidden}.hero-copy{text-align:center}.hero h1{font-size:42px;line-height:1.18;margin-bottom:28px;color:#172235}.badges{display:flex;justify-content:center;gap:28px;flex-wrap:wrap;color:#667386;font-size:16px;margin-bottom:42px}.badges span{display:flex;align-items:center;gap:8px}.badge-icon{width:18px;height:18px;border:2px solid #2f7df6;border-radius:5px;display:inline-block}.scene{height:360px;position:relative}.cloud{position:absolute;left:8%;bottom:8px;width:310px;height:92px;border-radius:46px;background:#fff;box-shadow:0 20px 35px rgba(58,126,194,.14)}.folder{position:absolute;left:25%;bottom:48px;width:230px;height:116px;border-radius:14px;background:#2393ef;box-shadow:inset 0 -18px 0 #1d58d2}.folder:before{content:'';position:absolute;left:20px;top:-28px;width:85px;height:34px;border-radius:8px 8px 0 0;background:#2861d5}.doc{position:absolute;background:#fff;border-radius:8px;box-shadow:0 18px 35px rgba(55,102,150,.12)}.doc.one{left:16%;top:42px;width:126px;height:84px}.doc.two{left:36%;top:110px;width:112px;height:150px}.doc.three{right:14%;top:92px;width:148px;height:102px;transform:rotate(12deg)}.line{height:6px;background:#b8ddfb;border-radius:8px;margin:16px 22px}.bubble{position:absolute;right:28%;top:64px;width:118px;height:64px;border-radius:8px;background:#1677ff}.bubble:after{content:'';position:absolute;left:0;bottom:-18px;border-top:20px solid #1677ff;border-right:28px solid transparent}.login-panel{height:520px;background:#fff;border:1px solid #d9e3f2;border-radius:8px;box-shadow:0 18px 40px rgba(43,84,130,.08);display:flex;flex-direction:column;align-items:center;padding:34px}.panel-tabs{display:flex;width:100%;border-bottom:1px solid #e5edf7;margin:-34px -34px 54px}.panel-tabs div{flex:1;text-align:center;padding:24px 0;color:#8b95a5;font-size:20px;font-weight:700}.panel-tabs div:first-child{color:#2f7df6;background:#fff;border-right:1px solid #e5edf7}.avatar{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#2465d9,#2ad1c8);display:grid;place-items:center;color:#fff;font-size:38px;font-weight:800;margin-bottom:22px;letter-spacing:1px}.login-panel h2{font-size:24px;margin-bottom:8px}.login-panel p{color:#8b95a5;margin-bottom:34px}.primary{width:260px;height:52px;border-radius:4px;background:#2f7df6;color:#fff;display:grid;place-items:center;font-size:20px;font-weight:700}.secondary{margin-top:22px;color:#2f5597}.features{background:#fff;padding:56px 12vw;display:grid;grid-template-columns:repeat(4,1fr);gap:22px}.feature{border:1px solid #e5edf7;border-radius:8px;padding:24px;background:#fff}.feature strong{display:block;font-size:18px;margin-bottom:10px;color:#172235}.feature p{color:#6b7280;line-height:1.7;font-size:14px}@media(max-width:960px){.topbar{padding:0 22px}.hero{grid-template-columns:1fr;padding:44px 22px}.login-panel{height:auto}.features{grid-template-columns:1fr;padding:34px 22px}.hero h1{font-size:32px}.scene{height:280px}}
+        *{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#1f2937;background:#f5fbff;min-height:100vh}a{text-decoration:none;color:inherit}.topbar{height:76px;background:#fff;display:flex;align-items:center;padding:0 9vw;box-shadow:0 1px 0 rgba(15,23,42,.06);position:sticky;top:0;z-index:20}.brand{display:flex;align-items:center;gap:12px;font-size:26px;font-weight:700;color:#23509b}.mark{width:42px;height:42px;border-radius:8px;background:#2457a8;color:white;display:grid;place-items:center;font-size:20px;font-weight:800;letter-spacing:.5px}.hero{min-height:calc(100vh - 76px);display:grid;grid-template-columns:minmax(0,1.1fr) 420px;gap:64px;align-items:center;padding:58px 12vw 70px;background:linear-gradient(110deg,#fdfbff 0%,#f1fbff 46%,#f4fbff 100%);overflow:hidden}.hero-copy{text-align:center}.hero h1{font-size:42px;line-height:1.18;margin-bottom:28px;color:#172235}.badges{display:flex;justify-content:center;gap:28px;flex-wrap:wrap;color:#667386;font-size:16px;margin-bottom:42px}.badges span{display:flex;align-items:center;gap:8px}.badge-icon{width:18px;height:18px;border:2px solid #2f7df6;border-radius:5px;display:inline-block}.scene{height:360px;position:relative}.cloud{position:absolute;left:8%;bottom:8px;width:310px;height:92px;border-radius:46px;background:#fff;box-shadow:0 20px 35px rgba(58,126,194,.14)}.folder{position:absolute;left:25%;bottom:48px;width:230px;height:116px;border-radius:14px;background:#2393ef;box-shadow:inset 0 -18px 0 #1d58d2}.folder:before{content:'';position:absolute;left:20px;top:-28px;width:85px;height:34px;border-radius:8px 8px 0 0;background:#2861d5}.doc{position:absolute;background:#fff;border-radius:8px;box-shadow:0 18px 35px rgba(55,102,150,.12)}.doc.one{left:16%;top:42px;width:126px;height:84px}.doc.two{left:36%;top:110px;width:112px;height:150px}.doc.three{right:14%;top:92px;width:148px;height:102px;transform:rotate(12deg)}.line{height:6px;background:#b8ddfb;border-radius:8px;margin:16px 22px}.bubble{position:absolute;right:28%;top:64px;width:118px;height:64px;border-radius:8px;background:#1677ff}.bubble:after{content:'';position:absolute;left:0;bottom:-18px;border-top:20px solid #1677ff;border-right:28px solid transparent}.login-panel{height:520px;background:#fff;border:1px solid #d9e3f2;border-radius:8px;box-shadow:0 18px 40px rgba(43,84,130,.08);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 34px}.avatar{width:110px;height:110px;border-radius:50%;background:linear-gradient(135deg,#2465d9,#2ad1c8);display:grid;place-items:center;color:#fff;font-size:44px;font-weight:800;margin-bottom:26px;letter-spacing:1px}.login-panel h2{font-size:24px;margin-bottom:8px}.login-panel p{color:#8b95a5;margin-bottom:34px}.primary{width:260px;height:52px;border-radius:4px;background:#2f7df6;color:#fff;display:grid;place-items:center;font-size:20px;font-weight:700}.secondary{margin-top:22px;color:#2f5597}.features{background:#fff;padding:56px 12vw;display:grid;grid-template-columns:repeat(4,1fr);gap:22px}.feature{border:1px solid #e5edf7;border-radius:8px;padding:24px;background:#fff}.feature strong{display:block;font-size:18px;margin-bottom:10px;color:#172235}.feature p{color:#6b7280;line-height:1.7;font-size:14px}@media(max-width:960px){.topbar{padding:0 22px}.hero{grid-template-columns:1fr;padding:44px 22px}.login-panel{height:auto}.features{grid-template-columns:1fr;padding:34px 22px}.hero h1{font-size:32px}.scene{height:280px}}
     </style>
 </head>
 <body>
@@ -1041,7 +1041,6 @@ const streamVaultIndexHTML = `<!DOCTYPE html>
             <div class="scene" aria-hidden="true"><div class="cloud"></div><div class="folder"></div><div class="doc one"><div class="line"></div><div class="line"></div><div class="line"></div></div><div class="doc two"><div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div></div><div class="doc three"><div class="line"></div><div class="line"></div></div><div class="bubble"></div></div>
         </section>
         <aside class="login-panel">
-            <div class="panel-tabs"><div>Gotee 个人版</div><div>Gotee 团队版</div></div>
             <div class="avatar">G</div>
             <h2>私人网盘</h2>
             <p>使用本项目面板账号密码登录</p>
@@ -1227,10 +1226,26 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
     function loadJSON(key, fb){ try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch(e){ return fb; } }
     function persistMeta(){ localStorage.setItem(KEY_FILES, JSON.stringify(files)); localStorage.setItem(KEY_TRASH, JSON.stringify(trash)); }
 
-    var files = loadJSON(KEY_FILES, null);
-    var trash = loadJSON(KEY_TRASH, []);
+    function isLegacyEntry(f){
+        if (!f || typeof f !== 'object') return true;
+        if (typeof f.id !== 'string') return true;
+        if (typeof f.name !== 'string') return true;
+        if (typeof f.folder !== 'boolean') return true;
+        if (!f.folder && typeof f.size !== 'number') return true;
+        if (f.parent !== undefined && typeof f.parent !== 'string') return true;
+        return false;
+    }
+    function normalizeList(arr){
+        if (!Array.isArray(arr)) return [];
+        var ok = [];
+        for (var i = 0; i < arr.length; i++) if (!isLegacyEntry(arr[i])) ok.push(arr[i]);
+        return ok;
+    }
+
+    var files = normalizeList(loadJSON(KEY_FILES, []));
+    var trash = normalizeList(loadJSON(KEY_TRASH, []));
     var quotaGB = Number(localStorage.getItem(KEY_QUOTA)) || 5;
-    if (!files) { files = []; persistMeta(); }
+    persistMeta();
 
     var cwd = [];
     var view = 'list';
@@ -1239,9 +1254,9 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
     var query = '';
     var selectedId = null;
 
-    function quotaBytes(){ return quotaGB * 1024 * 1024 * 1024; }
-    function usedBytes(){ var s = 0; for (var i=0;i<files.length;i++){ if (!files[i].folder) s += files[i].size || 0; } return s; }
-    function fmtBytes(n){ if(!n) return '0 B'; var u=['B','KB','MB','GB','TB']; var i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(n>=10||i==0?0:1)+' '+u[i]; }
+    function quotaBytes(){ return (Number(quotaGB) || 0) * 1024 * 1024 * 1024; }
+    function usedBytes(){ var s = 0; for (var i=0;i<files.length;i++){ if (!files[i].folder) s += Number(files[i].size) || 0; } return s; }
+    function fmtBytes(n){ n = Number(n); if (!isFinite(n) || n <= 0) return '0 B'; var u=['B','KB','MB','GB','TB']; var i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(n>=10||i==0?0:1)+' '+u[i]; }
     function todayStr(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
     function newId(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
     function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(function(){t.classList.remove('show');},1800); }
