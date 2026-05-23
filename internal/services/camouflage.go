@@ -1133,7 +1133,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
     <title>网盘 - Gotee 网盘</title>
     <meta name="description" content="Gotee 私人网盘文件管理。">
     <style>
-        *{box-sizing:border-box;margin:0;padding:0}body{height:100vh;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#1f2937;background:#fff}.app{height:100vh;display:grid;grid-template-columns:96px 330px minmax(0,1fr) 260px}.rail{background:#f3f7fd;border-right:1px solid #e4edf8;display:flex;flex-direction:column;align-items:center;padding:18px 8px;gap:14px}.logo{width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#2f7df6,#32d3c5);color:#fff;display:grid;place-items:center;font-weight:900;font-size:18px;letter-spacing:.5px}.rail-btn{width:74px;height:64px;border:0;border-radius:10px;background:transparent;color:#748399;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;transition:all .15s}.rail-btn:hover{background:#e8f0fb;color:#2f7df6}.rail-btn.active{background:#fff;color:#2f7df6;box-shadow:0 8px 22px rgba(30,82,140,.12)}.rail-btn .ri{font-size:18px;line-height:1}.user{margin-top:auto;text-align:center;color:#172235;width:100%;padding:14px 6px;border-top:1px solid #e4edf8;cursor:pointer;transition:background .15s;border-radius:8px}.user:hover{background:#fff}.user .avatar-sm{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#2f7df6,#32d3c5);color:#fff;display:grid;place-items:center;font-weight:800;margin:0 auto 6px}.user .uname{font-size:13px;font-weight:600;max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.user small{display:block;color:#8b95a5;margin-top:2px;font-size:11px}.left{background:linear-gradient(180deg,#eef6ff,#f8fbff);padding:22px 20px;border-right:1px solid #e4edf8;overflow:auto}.tabs{display:flex;gap:20px;font-size:20px;font-weight:700;color:#69778b;margin-bottom:22px}.tabs span{color:#172235;position:relative}.tabs span:after{content:'';position:absolute;left:18px;bottom:-12px;width:18px;height:3px;background:#2f7df6;border-radius:8px}.quota{background:#fff;border:2px solid #2f7df6;border-radius:10px;padding:20px;margin-bottom:18px}.quota h3{font-size:18px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}.quota .quota-text{color:#7a8698;font-size:13px}.bar{height:12px;background:#e5e7eb;border-radius:12px;overflow:hidden;margin:14px 0 12px}.bar div{height:100%;background:linear-gradient(90deg,#2f7df6,#9177f4);transition:width .3s}.bar.over div{background:linear-gradient(90deg,#f43f5e,#fb923c)}.legend{display:flex;gap:10px;flex-wrap:wrap;color:#8b95a5;font-size:12px}.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:4px}.quota-edit{margin-top:14px;display:flex;align-items:center;gap:8px;font-size:13px;color:#4b5563}.quota-edit input{width:80px;height:32px;border:1px solid #d9e3f2;border-radius:6px;padding:0 10px;font-size:14px;outline:none}.quota-edit input:focus{border-color:#2f7df6;box-shadow:0 0 0 2px rgba(47,125,246,.12)}.quota-edit button{height:32px;border:0;border-radius:6px;background:#2f7df6;color:#fff;padding:0 12px;font-size:13px;cursor:pointer}.quick{background:#fff;border-radius:10px;padding:20px}.quick h3{margin-bottom:18px;font-size:16px}.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 8px}.quick-item{text-align:center;color:#607086;font-size:13px;cursor:pointer;padding:6px 4px;border-radius:8px;transition:background .15s}.quick-item:hover{background:#f1f5fb}.quick-item.active{color:#2f7df6;font-weight:600}.quick-item.active .quick-icon{box-shadow:0 0 0 3px rgba(47,125,246,.18)}.quick-icon{width:40px;height:40px;margin:0 auto 6px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800}.main{min-width:0;display:flex;flex-direction:column}.top{height:72px;display:flex;align-items:center;gap:20px;padding:0 28px;border-bottom:1px solid #eef2f7}.search{flex:1;max-width:560px;height:42px;border:0;border-radius:24px;background:#f1f3f8;padding:0 20px;font-size:15px;outline:none}.tools{height:74px;display:flex;align-items:center;justify-content:space-between;padding:0 28px}.tool-left{display:flex;gap:10px;align-items:center}.btn{height:40px;border:1px solid #d1d7e0;border-radius:6px;background:#fff;padding:0 18px;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s}.btn:hover{border-color:#2f7df6;color:#2f7df6}.btn.primary{background:#2f7df6;color:#fff;border-color:#2f7df6}.btn.primary:hover{background:#1d6df0;color:#fff}.btn:disabled{opacity:.55;cursor:not-allowed}.view{display:flex;gap:0}.view button{width:40px;height:40px;border:1px solid #d8e1ef;background:#fff;color:#6b7280;cursor:pointer;font-size:14px}.view button:first-child{border-radius:6px 0 0 6px}.view button:last-child{border-radius:0 6px 6px 0;border-left:0}.view button.active{color:#2f7df6;background:#eef5ff;border-color:#2f7df6}.crumb{padding:0 28px 12px;color:#4b5563;font-size:14px;display:flex;align-items:center;flex-wrap:wrap;gap:2px}.crumb .cr{cursor:pointer;color:#2f7df6;padding:4px 6px;border-radius:4px}.crumb .cr:hover{background:#eef5ff}.crumb .cr.current{color:#1f2937;cursor:default;font-weight:600}.crumb .cr.current:hover{background:transparent}.crumb .sep{color:#9aa3af;padding:0 2px}.content{flex:1;overflow:auto;padding:0 28px 24px}.table{width:100%;border-collapse:collapse;table-layout:fixed}.table th{text-align:left;font-weight:500;color:#6b7280;height:42px;border-bottom:1px solid #e5e7eb;font-size:13px}.table td{height:60px;border-bottom:1px solid #eef2f7;color:#6b7280;font-size:13px}.table tr{cursor:pointer}.table tbody tr:hover{background:#f9fbff}.table tr.selected{background:#eef5ff !important}.name{display:flex;align-items:center;gap:12px;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}.name .star{color:#fbbf24;font-size:14px;margin-left:4px}.file-icon{width:34px;height:34px;border-radius:8px;background:#3b82f6;color:#fff;display:grid;place-items:center;font-weight:700;flex:0 0 auto;font-size:12px}.file-icon.folder{background:#ffbd17}.file-icon.image{background:#22c55e}.file-icon.video{background:#a78bfa}.file-icon.pdf{background:#ef4444}.file-icon.audio{background:#f43f5e}.file-icon.archive{background:#fbbf24}.file-icon.doc{background:#3b82f6}.actions{display:flex;gap:2px;flex-wrap:wrap}.actions button{border:0;background:transparent;color:#2f7df6;cursor:pointer;font-size:12px;padding:4px 6px;border-radius:4px}.actions button:hover{background:#eef5ff}.actions button.danger{color:#ef4444}.actions button.danger:hover{background:#fff1f2}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}.card{border:1px solid #e5edf7;border-radius:10px;padding:18px;min-height:140px;cursor:pointer;transition:all .15s;text-align:center;background:#fff}.card:hover{border-color:#2f7df6;transform:translateY(-2px);box-shadow:0 6px 20px rgba(30,82,140,.08)}.card .file-icon{margin:0 auto 12px;width:48px;height:48px;font-size:13px}.card .cname{font-size:13px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card .csub{color:#9aa3af;margin-top:6px;font-size:12px}.album{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}.photo{position:relative;aspect-ratio:1/1;border-radius:10px;overflow:hidden;cursor:pointer;background:#f1f5fb;transition:transform .15s}.photo:hover{transform:scale(1.02)}.photo img{width:100%;height:100%;object-fit:cover;display:block}.photo .pmeta{position:absolute;left:0;right:0;bottom:0;padding:8px 10px;background:linear-gradient(0deg,rgba(0,0,0,.55),transparent);color:#fff;font-size:12px;opacity:0;transition:opacity .15s}.photo:hover .pmeta{opacity:1}.side{border-left:1px solid #e4edf8;padding:24px 20px;color:#7a8698;font-size:13px;line-height:1.8;overflow:auto}.side h3{color:#172235;margin-bottom:18px;font-size:15px}.empty{height:280px;display:grid;place-items:center;color:#9aa3af;font-size:14px;text-align:center}.empty .sub{margin-top:8px;color:#cbd5e1;font-size:12px}.hidden{display:none !important}.modal{position:fixed;inset:0;background:rgba(15,23,42,.78);display:none;align-items:center;justify-content:center;z-index:1000;padding:36px}.modal.open{display:flex}.modal-box{background:#fff;border-radius:12px;max-width:1100px;width:100%;max-height:calc(100vh - 72px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.45)}.modal-head{display:flex;align-items:center;padding:14px 22px;border-bottom:1px solid #eef2f7;gap:12px}.modal-head h4{flex:1;font-size:15px;color:#172235;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.modal-head .meta{color:#9aa3af;font-size:13px}.modal-head .close{border:0;background:transparent;font-size:22px;cursor:pointer;color:#6b7280;padding:4px 8px;border-radius:6px}.modal-head .close:hover{background:#f1f5fb}.modal-body{flex:1;overflow:auto;background:#f8fafd}.modal-body.center{display:grid;place-items:center;padding:18px}.modal-body img{max-width:100%;max-height:calc(100vh - 200px);object-fit:contain;display:block}.modal-body video{max-width:100%;max-height:calc(100vh - 200px);display:block;background:#000}.modal-body audio{width:80%;margin:40px 0}.modal-body iframe{width:100%;height:calc(100vh - 180px);border:0;background:#fff}.modal-body pre{padding:22px 26px;margin:0;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:13px;line-height:1.65;color:#172235;white-space:pre-wrap;word-break:break-word}.csv-table{width:100%;border-collapse:collapse;font-size:13px}.csv-table th,.csv-table td{border:1px solid #e5e7eb;padding:8px 12px;text-align:left}.csv-table th{background:#f1f5fb;font-weight:600;color:#1f2937;position:sticky;top:0}.toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:12px 22px;border-radius:24px;font-size:14px;box-shadow:0 12px 30px rgba(0,0,0,.25);opacity:0;transition:opacity .2s;pointer-events:none;z-index:2000}.toast.show{opacity:1}@media(max-width:1100px){.app{grid-template-columns:80px minmax(0,1fr)}.left,.side{display:none}.top,.tools,.crumb,.content{padding-left:16px;padding-right:16px}.search{max-width:100%}}
+        *{box-sizing:border-box;margin:0;padding:0}body{height:100vh;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#1f2937;background:#fff}.app{height:100vh;display:grid;grid-template-columns:96px 330px minmax(0,1fr) 260px}.rail{background:#f3f7fd;border-right:1px solid #e4edf8;display:flex;flex-direction:column;align-items:center;padding:18px 8px;gap:14px}.logo{width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#2f7df6,#32d3c5);color:#fff;display:grid;place-items:center;font-weight:900;font-size:18px;letter-spacing:.5px}.rail-btn{width:74px;height:64px;border:0;border-radius:10px;background:transparent;color:#748399;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;transition:all .15s}.rail-btn:hover{background:#e8f0fb;color:#2f7df6}.rail-btn.active{background:#fff;color:#2f7df6;box-shadow:0 8px 22px rgba(30,82,140,.12)}.rail-btn .ri{font-size:18px;line-height:1}.user{margin-top:auto;text-align:center;color:#172235;width:100%;padding:14px 6px;border-top:1px solid #e4edf8;cursor:pointer;transition:background .15s;border-radius:8px}.user:hover{background:#fff}.user .avatar-sm{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#2f7df6,#32d3c5);color:#fff;display:grid;place-items:center;font-weight:800;margin:0 auto 6px}.user .uname{font-size:13px;font-weight:600;max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.user small{display:block;color:#8b95a5;margin-top:2px;font-size:11px}.left{background:linear-gradient(180deg,#eef6ff,#f8fbff);padding:22px 20px;border-right:1px solid #e4edf8;overflow:auto}.tabs{display:flex;gap:20px;font-size:20px;font-weight:700;color:#69778b;margin-bottom:22px}.tabs span{color:#172235;position:relative}.tabs span:after{content:'';position:absolute;left:18px;bottom:-12px;width:18px;height:3px;background:#2f7df6;border-radius:8px}.quota{background:#fff;border:2px solid #2f7df6;border-radius:10px;padding:20px;margin-bottom:18px}.quota h3{font-size:18px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}.quota .quota-text{color:#7a8698;font-size:13px}.bar{height:12px;background:#e5e7eb;border-radius:12px;overflow:hidden;margin:14px 0 12px}.bar div{height:100%;background:linear-gradient(90deg,#2f7df6,#9177f4);transition:width .3s}.bar.over div{background:linear-gradient(90deg,#f43f5e,#fb923c)}.legend{display:flex;gap:10px;flex-wrap:wrap;color:#8b95a5;font-size:12px}.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:4px}.quota-edit{margin-top:14px;display:flex;align-items:center;gap:8px;font-size:13px;color:#4b5563}.quota-edit input{width:80px;height:32px;border:1px solid #d9e3f2;border-radius:6px;padding:0 10px;font-size:14px;outline:none}.quota-edit input:focus{border-color:#2f7df6;box-shadow:0 0 0 2px rgba(47,125,246,.12)}.quota-edit button{height:32px;border:0;border-radius:6px;background:#2f7df6;color:#fff;padding:0 12px;font-size:13px;cursor:pointer}.quick{background:#fff;border-radius:10px;padding:20px}.quick h3{margin-bottom:18px;font-size:16px}.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 8px}.quick-item{text-align:center;color:#607086;font-size:13px;cursor:pointer;padding:6px 4px;border-radius:8px;transition:background .15s}.quick-item:hover{background:#f1f5fb}.quick-item.active{color:#2f7df6;font-weight:600}.quick-item.active .quick-icon{box-shadow:0 0 0 3px rgba(47,125,246,.18)}.quick-icon{width:40px;height:40px;margin:0 auto 6px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800}.main{min-width:0;display:flex;flex-direction:column}.top{height:72px;display:flex;align-items:center;gap:20px;padding:0 28px;border-bottom:1px solid #eef2f7}.search{flex:1;max-width:560px;height:42px;border:0;border-radius:24px;background:#f1f3f8;padding:0 20px;font-size:15px;outline:none}.tools{height:74px;display:flex;align-items:center;justify-content:space-between;padding:0 28px}.tool-left{display:flex;gap:10px;align-items:center}.btn{height:40px;border:1px solid #d1d7e0;border-radius:6px;background:#fff;padding:0 18px;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s}.btn:hover{border-color:#2f7df6;color:#2f7df6}.btn.primary{background:#2f7df6;color:#fff;border-color:#2f7df6}.btn.primary:hover{background:#1d6df0;color:#fff}.btn.danger{background:#ef4444;color:#fff;border-color:#ef4444}.btn.danger:hover{background:#dc2626;border-color:#dc2626;color:#fff}.btn:disabled{opacity:.55;cursor:not-allowed}.view{display:flex;gap:0}.view button{width:40px;height:40px;border:1px solid #d8e1ef;background:#fff;color:#6b7280;cursor:pointer;font-size:14px}.view button:first-child{border-radius:6px 0 0 6px}.view button:last-child{border-radius:0 6px 6px 0;border-left:0}.view button.active{color:#2f7df6;background:#eef5ff;border-color:#2f7df6}.crumb{padding:0 28px 12px;color:#4b5563;font-size:14px;display:flex;align-items:center;flex-wrap:wrap;gap:2px}.crumb .cr{cursor:pointer;color:#2f7df6;padding:4px 6px;border-radius:4px}.crumb .cr:hover{background:#eef5ff}.crumb .cr.current{color:#1f2937;cursor:default;font-weight:600}.crumb .cr.current:hover{background:transparent}.crumb .sep{color:#9aa3af;padding:0 2px}.content{flex:1;overflow:auto;padding:0 28px 24px}.table{width:100%;border-collapse:collapse;table-layout:fixed}.table th{text-align:left;font-weight:500;color:#6b7280;height:42px;border-bottom:1px solid #e5e7eb;font-size:13px}.table td{height:60px;border-bottom:1px solid #eef2f7;color:#6b7280;font-size:13px}.table tr{cursor:pointer}.table tbody tr:hover{background:#f9fbff}.table tr.selected{background:#eef5ff !important}.name{display:flex;align-items:center;gap:12px;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}.name .star{color:#fbbf24;font-size:14px;margin-left:4px}.file-icon{width:34px;height:34px;border-radius:8px;background:#3b82f6;color:#fff;display:grid;place-items:center;font-weight:700;flex:0 0 auto;font-size:12px}.file-icon.folder{background:#ffbd17}.file-icon.image{background:#22c55e}.file-icon.video{background:#a78bfa}.file-icon.pdf{background:#ef4444}.file-icon.audio{background:#f43f5e}.file-icon.archive{background:#fbbf24}.file-icon.doc{background:#3b82f6}.row-action{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:0;background:transparent;border-radius:8px;cursor:pointer;color:#6b7280;font-size:16px;line-height:1}.row-action:hover,.row-action.open{background:#eef5ff;color:#2f7df6}.menu{position:fixed;background:#fff;border:1px solid #e5edf7;border-radius:10px;box-shadow:0 18px 40px rgba(15,23,42,.16);padding:6px;min-width:160px;z-index:900}.menu button{display:block;width:100%;text-align:left;padding:8px 14px;border:0;background:transparent;cursor:pointer;font-size:13px;border-radius:6px;color:#1f2937}.menu button:hover{background:#f1f5fb}.menu button.danger{color:#ef4444}.menu button.danger:hover{background:#fff1f2}.menu .sep{height:1px;background:#eef2f7;margin:4px 0}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}.card{border:1px solid #e5edf7;border-radius:10px;padding:18px;min-height:140px;cursor:pointer;transition:all .15s;text-align:center;background:#fff}.card:hover{border-color:#2f7df6;transform:translateY(-2px);box-shadow:0 6px 20px rgba(30,82,140,.08)}.card .file-icon{margin:0 auto 12px;width:48px;height:48px;font-size:13px}.card .cname{font-size:13px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card .csub{color:#9aa3af;margin-top:6px;font-size:12px}.album{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}.photo{position:relative;aspect-ratio:1/1;border-radius:10px;overflow:hidden;cursor:pointer;background:#f1f5fb;transition:transform .15s}.photo:hover{transform:scale(1.02)}.photo img,.photo video{width:100%;height:100%;object-fit:cover;display:block;background:#000}.photo .pmeta{position:absolute;left:0;right:0;bottom:0;padding:8px 10px;background:linear-gradient(0deg,rgba(0,0,0,.6),transparent);color:#fff;font-size:12px;opacity:0;transition:opacity .15s;pointer-events:none}.photo:hover .pmeta{opacity:1}.photo.video-tile{background:#0f172a}.photo.video-tile video{pointer-events:none}.photo.video-tile .play-overlay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:58px;height:58px;border-radius:50%;background:rgba(15,23,42,.55);color:#fff;display:grid;place-items:center;font-size:24px;pointer-events:none;backdrop-filter:blur(4px)}.photo.video-tile .vfallback{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#7c3aed,#3b82f6);gap:8px;font-size:14px}.photo.video-tile .vfallback small{opacity:.75;font-size:11px}.photo.video-tile.no-preview video{display:none}.photo.video-tile.no-preview .vfallback{display:flex}.photo.video-tile.no-preview .play-overlay{display:none}.side{border-left:1px solid #e4edf8;padding:24px 20px;color:#7a8698;font-size:13px;line-height:1.8;overflow:auto}.side h3{color:#172235;margin-bottom:18px;font-size:15px}.empty{height:280px;display:grid;place-items:center;color:#9aa3af;font-size:14px;text-align:center}.empty .sub{margin-top:8px;color:#cbd5e1;font-size:12px}.hidden{display:none !important}.modal{position:fixed;inset:0;background:rgba(15,23,42,.78);display:none;align-items:center;justify-content:center;z-index:1000;padding:36px}.modal.open{display:flex}.modal-box{background:#fff;border-radius:12px;max-width:1100px;width:100%;max-height:calc(100vh - 72px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.45)}.modal-head{display:flex;align-items:center;padding:14px 22px;border-bottom:1px solid #eef2f7;gap:12px}.modal-head h4{flex:1;font-size:15px;color:#172235;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.modal-head .meta{color:#9aa3af;font-size:13px}.modal-head .close{border:0;background:transparent;font-size:22px;cursor:pointer;color:#6b7280;padding:4px 8px;border-radius:6px}.modal-head .close:hover{background:#f1f5fb}.modal-body{flex:1;overflow:auto;background:#f8fafd}.modal-body.center{display:grid;place-items:center;padding:18px}.modal-body img{max-width:100%;max-height:calc(100vh - 200px);object-fit:contain;display:block}.modal-body video{width:min(960px,100%);min-height:360px;max-height:calc(100vh - 220px);display:block;background:#000;border-radius:6px;outline:none}.modal-body .video-error{padding:48px;text-align:center;color:#475569;background:#fff;border-radius:8px;max-width:520px}.modal-body .video-error .ico{font-size:48px;margin-bottom:14px;color:#f59e0b}.modal-body audio{width:80%;margin:40px 0}.modal-body iframe{width:100%;height:calc(100vh - 180px);border:0;background:#fff}.modal-body pre{padding:22px 26px;margin:0;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:13px;line-height:1.65;color:#172235;white-space:pre-wrap;word-break:break-word}.csv-table{width:100%;border-collapse:collapse;font-size:13px}.csv-table th,.csv-table td{border:1px solid #e5e7eb;padding:8px 12px;text-align:left}.csv-table th{background:#f1f5fb;font-weight:600;color:#1f2937;position:sticky;top:0}.toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:12px 22px;border-radius:24px;font-size:14px;box-shadow:0 12px 30px rgba(0,0,0,.25);opacity:0;transition:opacity .2s;pointer-events:none;z-index:2000}.toast.show{opacity:1}@media(max-width:1100px){.app{grid-template-columns:80px minmax(0,1fr)}.left,.side{display:none}.top,.tools,.crumb,.content{padding-left:16px;padding-right:16px}.search{max-width:100%}}
     </style>
 </head>
 <body>
@@ -1142,6 +1142,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
             <div class="logo">G</div>
             <button class="rail-btn active" data-pane="storage"><span class="ri">▤</span>存储</button>
             <button class="rail-btn" data-pane="album"><span class="ri">▦</span>相册</button>
+            <button class="rail-btn" data-pane="video"><span class="ri">▷</span>视频</button>
             <div class="user" id="user-area" title="点击退出登录">
                 <div class="avatar-sm" id="user-avatar">G</div>
                 <div class="uname" id="user-name">用户</div>
@@ -1185,7 +1186,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
                     <button id="upload-btn" class="btn primary">上传</button>
                     <button id="folder-btn" class="btn">新建文件夹</button>
                     <input id="file-input" class="hidden" type="file" multiple>
-                    <button id="trash-clear" class="btn hidden">清空回收站</button>
+                    <button id="trash-clear" class="btn danger hidden">清空回收站</button>
                 </div>
                 <div class="view">
                     <button id="list-view" class="active" title="列表">☰</button>
@@ -1323,6 +1324,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         if (section === 'starred') { crumb.innerHTML = '<span class="cr current">星标文件</span>'; return; }
         if (section === 'trash') { crumb.innerHTML = '<span class="cr current">回收站</span>'; return; }
         if (pane === 'album') { crumb.innerHTML = '<span class="cr current">相册</span>'; return; }
+        if (pane === 'video') { crumb.innerHTML = '<span class="cr current">视频</span>'; return; }
         var html = '<span class="cr" data-i="-1">根目录</span>';
         for (var i=0;i<cwd.length;i++){
             html += '<span class="sep">/</span><span class="cr ' + (i===cwd.length-1?'current':'') + '" data-i="'+i+'">' + escapeHTML(cwd[i].name) + '</span>';
@@ -1386,20 +1388,48 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
             for (var k=0;k<data.length;k++){
                 var ff = data[k];
                 var ccat = ff.folder ? 'folder' : fileCategory(ff.mime, ff.name);
-                var acts = '';
-                if (section === 'trash') {
-                    acts = '<button data-act="restore" data-id="'+ff.id+'">还原</button><button class="danger" data-act="purge" data-id="'+ff.id+'">彻底删除</button>';
-                } else {
-                    if (!ff.folder) acts += '<button data-act="open" data-id="'+ff.id+'">查看</button><button data-act="download" data-id="'+ff.id+'">下载</button>';
-                    acts += '<button data-act="star" data-id="'+ff.id+'">'+(ff.starred?'取消星标':'星标')+'</button>';
-                    acts += '<button data-act="rename" data-id="'+ff.id+'">重命名</button>';
-                    acts += '<button class="danger" data-act="trash" data-id="'+ff.id+'">删除</button>';
-                }
-                rows += '<tr data-id="'+ff.id+'" class="'+(ff.id===selectedId?'selected':'')+'"><td><div class="name"><span class="file-icon '+ccat+'">'+(ff.folder?'夹':iconLabel(ccat))+'</span>'+escapeHTML(ff.name)+(ff.starred?'<span class="star">★</span>':'')+'</div></td><td>'+(ff.folder?'-':fmtBytes(ff.size||0))+'</td><td>'+escapeHTML(typeLabel(ff.mime, ff.name, ff.folder))+'</td><td>'+escapeHTML(ff.modified||'-')+'</td><td class="actions">'+acts+'</td></tr>';
+                var acts = '<button class="row-action" data-menu="1" data-id="'+ff.id+'" title="更多操作">⋯</button>';
+                rows += '<tr data-id="'+ff.id+'" class="'+(ff.id===selectedId?'selected':'')+'"><td><div class="name"><span class="file-icon '+ccat+'">'+(ff.folder?'夹':iconLabel(ccat))+'</span>'+escapeHTML(ff.name)+(ff.starred?'<span class="star">★</span>':'')+'</div></td><td>'+(ff.folder?'-':fmtBytes(ff.size||0))+'</td><td>'+escapeHTML(typeLabel(ff.mime, ff.name, ff.folder))+'</td><td>'+escapeHTML(ff.modified||'-')+'</td><td style="text-align:right;padding-right:6px">'+acts+'</td></tr>';
             }
-            content.innerHTML = '<table class="table"><thead><tr><th style="width:42%">文件名 <span style="color:#9aa3af">'+folderCount+' 个文件夹，'+fileCount+' 个文件</span></th><th style="width:14%">大小</th><th style="width:16%">类型</th><th style="width:18%">修改时间</th><th style="width:10%">操作</th></tr></thead><tbody>'+rows+'</tbody></table>';
+            content.innerHTML = '<table class="table"><thead><tr><th style="width:46%">文件名 <span style="color:#9aa3af">'+folderCount+' 个文件夹，'+fileCount+' 个文件</span></th><th style="width:14%">大小</th><th style="width:14%">类型</th><th style="width:18%">修改时间</th><th style="width:8%;text-align:right;padding-right:6px">操作</th></tr></thead><tbody>'+rows+'</tbody></table>';
         }
         bindContentEvents();
+    }
+
+    function renderVideos(){
+        var content = document.getElementById('content');
+        document.getElementById('trash-clear').classList.add('hidden');
+        var vids = files.filter(function(f){ return !f.folder && fileCategory(f.mime, f.name) === 'video'; });
+        vids.sort(function(a,b){ return (b.uploadedAt||0)-(a.uploadedAt||0); });
+        if (query){ var q = query.toLowerCase(); vids = vids.filter(function(f){ return f.name.toLowerCase().indexOf(q)!==-1; }); }
+        if (!vids.length){ content.innerHTML = '<div class="empty"><div>视频列表暂无内容</div><div class="sub">上传视频文件后即可在此查看</div></div>'; return; }
+        var html = '<div class="album">';
+        for (var i=0;i<vids.length;i++){
+            var v = vids[i];
+            var src = getFileData(v.id) || '';
+            html += '<div class="photo video-tile" data-id="'+v.id+'">'+
+                    '<video src="'+src+'" preload="metadata" muted playsinline></video>'+
+                    '<div class="vfallback"><div style="font-size:34px">▶</div><div>'+escapeHTML(v.name.split(".").pop().toUpperCase())+' 视频</div><small>当前浏览器无法生成预览</small></div>'+
+                    '<div class="play-overlay">▶</div>'+
+                    '<div class="pmeta">'+escapeHTML(v.name)+' · '+fmtBytes(v.size||0)+'</div>'+
+                    '</div>';
+        }
+        html += '</div>';
+        content.innerHTML = html;
+        var tiles = content.querySelectorAll('.video-tile');
+        for (var j=0;j<tiles.length;j++){
+            (function(tile){
+                var videoEl = tile.querySelector('video');
+                var seeked = false;
+                videoEl.addEventListener('loadedmetadata', function(){
+                    try { videoEl.currentTime = Math.min(0.5, (videoEl.duration||1) * 0.1); } catch(e){}
+                });
+                videoEl.addEventListener('seeked', function(){ seeked = true; });
+                videoEl.addEventListener('error', function(){ tile.classList.add('no-preview'); });
+                setTimeout(function(){ if (!seeked && (videoEl.readyState||0) < 2) tile.classList.add('no-preview'); }, 4000);
+                tile.addEventListener('click', function(){ openPreview(tile.getAttribute('data-id')); });
+            })(tiles[j]);
+        }
     }
 
     function renderAlbum(){
@@ -1428,11 +1458,14 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
     function renderAll(){
         renderQuota();
         renderCrumb();
-        if (pane === 'album') renderAlbum(); else renderList();
+        closeRowMenu();
+        if (pane === 'album') renderAlbum();
+        else if (pane === 'video') renderVideos();
+        else renderList();
         updateProps();
         document.querySelectorAll('.rail-btn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-pane')===pane); });
         document.querySelectorAll('.quick-item').forEach(function(q){ q.classList.toggle('active', q.getAttribute('data-section')===section); });
-        var allowMutate = pane !== 'album' && section !== 'trash' && section !== 'recent' && section !== 'starred';
+        var allowMutate = pane === 'storage' && section === 'all';
         document.getElementById('upload-btn').disabled = !allowMutate;
         document.getElementById('folder-btn').disabled = !allowMutate;
     }
@@ -1467,20 +1500,79 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
                 if (f.folder) { cwd.push({id:f.id, name:f.name}); renderAll(); } else { openPreview(id); }
             });
         });
-        var btns = content.querySelectorAll('button[data-act]');
+        var btns = content.querySelectorAll('button[data-menu]');
         btns.forEach(function(b){
-            b.addEventListener('click', function(e){
-                e.stopPropagation();
-                var act = b.getAttribute('data-act'); var id = b.getAttribute('data-id');
-                if (act==='open') openPreview(id);
-                else if (act==='download') downloadFile(id);
-                else if (act==='star') toggleStar(id);
-                else if (act==='rename') renameItem(id);
-                else if (act==='trash') trashItem(id);
-                else if (act==='restore') restoreItem(id);
-                else if (act==='purge') purgeItem(id);
-            });
+            b.addEventListener('click', function(e){ e.stopPropagation(); showRowMenu(b); });
         });
+    }
+
+    function runRowAction(id, act){
+        var f = files.concat(trash).filter(function(x){return x.id===id;})[0];
+        if (act==='open') openPreview(id);
+        else if (act==='download') downloadFile(id);
+        else if (act==='star') toggleStar(id);
+        else if (act==='rename') renameItem(id);
+        else if (act==='trash') trashItem(id);
+        else if (act==='restore') restoreItem(id);
+        else if (act==='purge') purgeItem(id);
+        else if (act==='enter' && f && f.folder) { cwd.push({id:f.id, name:f.name}); renderAll(); }
+    }
+
+    function showRowMenu(btn){
+        closeRowMenu();
+        var id = btn.getAttribute('data-id');
+        var f = files.concat(trash).filter(function(x){return x.id===id;})[0];
+        if (!f) return;
+        var items = [];
+        if (section === 'trash') {
+            items.push({label:'还原', act:'restore'});
+            items.push({label:'彻底删除', act:'purge', danger:true});
+        } else {
+            if (f.folder) items.push({label:'进入文件夹', act:'enter'});
+            else { items.push({label:'查看', act:'open'}); items.push({label:'下载', act:'download'}); }
+            items.push({label:f.starred?'取消星标':'添加星标', act:'star'});
+            items.push({label:'重命名', act:'rename'});
+            items.push({sep:true});
+            items.push({label:'移入回收站', act:'trash', danger:true});
+        }
+        var menu = document.createElement('div'); menu.className = 'menu';
+        for (var i=0;i<items.length;i++){
+            var it = items[i];
+            if (it.sep) { var s = document.createElement('div'); s.className='sep'; menu.appendChild(s); continue; }
+            var mb = document.createElement('button');
+            mb.type = 'button';
+            mb.textContent = it.label;
+            if (it.danger) mb.className = 'danger';
+            (function(act){ mb.onclick = function(e){ e.stopPropagation(); closeRowMenu(); runRowAction(id, act); }; })(it.act);
+            menu.appendChild(mb);
+        }
+        document.body.appendChild(menu);
+        btn.classList.add('open');
+        menu._anchor = btn;
+        var rect = btn.getBoundingClientRect();
+        var menuW = menu.offsetWidth || 160;
+        var menuH = menu.offsetHeight || 200;
+        var x = Math.max(8, Math.min(window.innerWidth - menuW - 8, rect.right - menuW));
+        var y = rect.bottom + 4;
+        if (y + menuH > window.innerHeight - 8) y = Math.max(8, rect.top - menuH - 4);
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+        setTimeout(function(){
+            document.addEventListener('click', onDocClickCloseMenu, true);
+            document.addEventListener('keydown', onEscCloseMenu);
+            window.addEventListener('scroll', closeRowMenu, true);
+            window.addEventListener('resize', closeRowMenu);
+        }, 0);
+    }
+    function onDocClickCloseMenu(e){ var m = document.querySelector('.menu'); if (m && !m.contains(e.target)) closeRowMenu(); }
+    function onEscCloseMenu(e){ if (e.key === 'Escape') closeRowMenu(); }
+    function closeRowMenu(){
+        var menus = document.querySelectorAll('.menu');
+        for (var i=0;i<menus.length;i++){ if (menus[i]._anchor) menus[i]._anchor.classList.remove('open'); menus[i].remove(); }
+        document.removeEventListener('click', onDocClickCloseMenu, true);
+        document.removeEventListener('keydown', onEscCloseMenu);
+        window.removeEventListener('scroll', closeRowMenu, true);
+        window.removeEventListener('resize', closeRowMenu);
     }
 
     function toggleStar(id){
@@ -1543,7 +1635,15 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         var cat = fileCategory(f.mime, f.name);
         if (!data) { body.innerHTML = '<div style="padding:48px;color:#9aa3af">文件数据不可用</div>'; }
         else if (cat === 'image') { var img = document.createElement('img'); img.src = data; body.appendChild(img); }
-        else if (cat === 'video') { var v = document.createElement('video'); v.src = data; v.controls = true; v.autoplay = false; body.appendChild(v); }
+        else if (cat === 'video') {
+            var v = document.createElement('video');
+            v.src = data; v.controls = true; v.autoplay = false; v.playsInline = true; v.preload = 'metadata';
+            v.setAttribute('controlsList', 'nodownload');
+            v.onerror = function(){ showVideoFallback(body, f); };
+            v.addEventListener('loadedmetadata', function(){ try { v.currentTime = Math.min(0.1, (v.duration||1) * 0.05); } catch(e){} });
+            body.appendChild(v);
+            setTimeout(function(){ if ((v.readyState||0) < 1) showVideoFallback(body, f); }, 5000);
+        }
         else if (cat === 'audio') { var a = document.createElement('audio'); a.src = data; a.controls = true; body.appendChild(a); }
         else if (cat === 'pdf') { body.className = 'modal-body'; var ifr = document.createElement('iframe'); ifr.src = data; body.appendChild(ifr); }
         else if (cat === 'doc') {
@@ -1561,6 +1661,13 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
             body.innerHTML = '<div style="padding:48px;color:#9aa3af">该文件类型不支持在线查看，请下载后打开</div>';
         }
         document.getElementById('modal').classList.add('open');
+    }
+
+    function showVideoFallback(body, f){
+        body.className = 'modal-body center';
+        var ext = (f.name.split('.').pop()||'').toUpperCase();
+        body.innerHTML = '<div class="video-error"><div class="ico">⚠</div><div style="font-size:16px;font-weight:600;color:#1f2937;margin-bottom:6px">无法在浏览器中播放</div><div style="margin-bottom:14px">当前浏览器对 '+escapeHTML(ext)+' 格式（如 .MOV / HEVC / ProRes 等）不支持解码。请下载到本地用专用播放器查看。</div><button class="btn primary" id="vfb-download">下载视频</button></div>';
+        document.getElementById('vfb-download').onclick = function(){ downloadFile(f.id); };
     }
 
     function decodeDataURL(dataUrl){
