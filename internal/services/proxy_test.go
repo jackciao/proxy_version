@@ -167,22 +167,29 @@ func TestListenAddressConflictsHandlesIPv6AndWildcards(t *testing.T) {
 	}
 }
 
-func TestBuildWarpOutboundIncludesIPv6AndPrefersIPv4Domains(t *testing.T) {
-	outbound := buildWarpOutbound(&WarpConfig{
+func TestBuildWarpEndpointIncludesIPv6AndPrefersIPv4Domains(t *testing.T) {
+	endpoint := buildWarpEndpoint(&WarpConfig{
 		PrivateKey:  "test-private-key",
 		IPv4Address: "172.16.0.2/32",
 		IPv6Address: "2606:4700:110:8765::1/128",
 		Endpoint:    "engage.cloudflareclient.com:2408",
 	})
 
-	if outbound["domain_strategy"] != "prefer_ipv4" {
-		t.Fatalf("domain_strategy = %v, want prefer_ipv4", outbound["domain_strategy"])
+	if endpoint["type"] != "wireguard" || endpoint["tag"] != "warp-out" {
+		t.Fatalf("endpoint type/tag = %v/%v, want wireguard/warp-out", endpoint["type"], endpoint["tag"])
 	}
-	localAddress := outbound["local_address"].([]string)
-	if len(localAddress) != 2 {
-		t.Fatalf("local_address length = %d, want 2", len(localAddress))
+	resolver := endpoint["domain_resolver"].(map[string]interface{})
+	if resolver["strategy"] != "prefer_ipv4" {
+		t.Fatalf("domain resolver strategy = %v, want prefer_ipv4", resolver["strategy"])
 	}
-	peers := outbound["peers"].([]map[string]interface{})
+	address := endpoint["address"].([]string)
+	if len(address) != 2 {
+		t.Fatalf("address length = %d, want 2", len(address))
+	}
+	peers := endpoint["peers"].([]map[string]interface{})
+	if peers[0]["address"] != "engage.cloudflareclient.com" || peers[0]["port"] != 2408 {
+		t.Fatalf("peer endpoint = %v:%v, want engage.cloudflareclient.com:2408", peers[0]["address"], peers[0]["port"])
+	}
 	allowedIPs := peers[0]["allowed_ips"].([]string)
 	if len(allowedIPs) != 2 || allowedIPs[0] != "0.0.0.0/0" || allowedIPs[1] != "::/0" {
 		t.Fatalf("allowed_ips = %v, want IPv4 and IPv6 defaults", allowedIPs)
@@ -205,22 +212,14 @@ func TestValidateCamouflageDomainRejectsUnsafeNames(t *testing.T) {
 	}
 }
 
-func TestInjectMediaItemsRendersRealPostersAndRemovesMockScript(t *testing.T) {
-	items := []mediaItem{{
-		Title:  "Example Show",
-		Year:   "2024",
-		Rating: "8.8",
-		Poster: "https://static.tvmaze.com/uploads/images/original_untouched/1/1.jpg",
-	}}
-
-	page := injectMediaItems(streamVaultIndexHTML, items)
-	if !strings.Contains(page, "Example Show") {
-		t.Fatal("rendered page does not contain media title")
+func TestPrivateCloudTemplatesUsePanelAuthAndDriveApp(t *testing.T) {
+	if !strings.Contains(streamVaultIndexHTML, "私人网盘") || !strings.Contains(streamVaultIndexHTML, "使用本项目面板账号密码登录") {
+		t.Fatal("landing page should describe the private drive and shared panel credentials")
 	}
-	if !strings.Contains(page, `<img src="https://static.tvmaze.com/uploads/images/original_untouched/1/1.jpg"`) {
-		t.Fatal("rendered page does not contain poster image")
+	if !strings.Contains(streamVaultLoginHTML, "/auth/login") || !strings.Contains(streamVaultLoginHTML, "本项目面板账号密码") {
+		t.Fatal("login page should authenticate against the panel login API")
 	}
-	if strings.Contains(page, "Generate mock content cards") || strings.Contains(page, "Midnight Protocol") {
-		t.Fatal("mock content script was not removed")
+	if !strings.Contains(streamVaultDriveHTML, "/auth/me") || !strings.Contains(streamVaultDriveHTML, "上传") || !strings.Contains(streamVaultDriveHTML, "新建") {
+		t.Fatal("drive page should verify auth and include core file actions")
 	}
 }

@@ -503,51 +503,81 @@ func (s *WarpService) unregisterDevice(deviceID, accessToken string) {
 	}
 }
 
-// GenerateSingBoxOutbound generates sing-box WireGuard outbound config.
-func (s *WarpService) GenerateSingBoxOutbound() (map[string]interface{}, error) {
+// GenerateSingBoxEndpoint generates the sing-box 1.13+ WireGuard endpoint config.
+func (s *WarpService) GenerateSingBoxEndpoint() (map[string]interface{}, error) {
 	config, err := s.GetConfig()
 	if err != nil || config == nil {
 		return nil, fmt.Errorf("WARP 未配置")
 	}
 
-	return buildWarpOutbound(config), nil
+	return buildWarpEndpoint(config), nil
 }
 
-func buildWarpOutbound(config *WarpConfig) map[string]interface{} {
-	localAddress := []string{}
+func buildWarpEndpoint(config *WarpConfig) map[string]interface{} {
+	address := []string{}
 	allowedIPs := []string{}
 	if config.IPv4Address != "" {
-		localAddress = append(localAddress, config.IPv4Address)
+		address = append(address, config.IPv4Address)
 		allowedIPs = append(allowedIPs, "0.0.0.0/0")
 	}
 	if config.IPv6Address != "" {
-		localAddress = append(localAddress, config.IPv6Address)
+		address = append(address, config.IPv6Address)
 		allowedIPs = append(allowedIPs, "::/0")
 	}
-	if len(localAddress) == 0 {
-		localAddress = append(localAddress, "172.16.0.2/32")
+	if len(address) == 0 {
+		address = append(address, "172.16.0.2/32")
 		allowedIPs = append(allowedIPs, "0.0.0.0/0")
 	}
 
-	outbound := map[string]interface{}{
-		"type":            "wireguard",
-		"tag":             "warp-out",
-		"domain_strategy": "prefer_ipv4",
-		"local_address":   localAddress,
-		"private_key":     config.PrivateKey,
+	server, port := splitEndpoint(config.Endpoint)
+	endpoint := map[string]interface{}{
+		"type":        "wireguard",
+		"tag":         "warp-out",
+		"system":      false,
+		"mtu":         1280,
+		"address":     address,
+		"private_key": config.PrivateKey,
 		"peers": []map[string]interface{}{
 			{
-				"server":      strings.Split(config.Endpoint, ":")[0],
-				"server_port": 2408,
-				"public_key":  "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", // Cloudflare WARP public key
-				"reserved":    []int{0, 0, 0},
-				"allowed_ips": allowedIPs,
+				"address":                       server,
+				"port":                          port,
+				"public_key":                    "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", // Cloudflare WARP public key
+				"reserved":                      []int{0, 0, 0},
+				"allowed_ips":                   allowedIPs,
+				"persistent_keepalive_interval": 30,
 			},
 		},
-		"mtu": 1280,
+		"domain_resolver": map[string]interface{}{
+			"server":   "local",
+			"strategy": "prefer_ipv4",
+		},
 	}
 
-	return outbound
+	return endpoint
+}
+
+func splitEndpoint(endpoint string) (string, int) {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return "engage.cloudflareclient.com", 2408
+	}
+	if strings.HasPrefix(endpoint, "[") {
+		if closing := strings.LastIndex(endpoint, "]"); closing > 0 {
+			host := endpoint[1:closing]
+			if len(endpoint) > closing+2 && endpoint[closing+1] == ':' {
+				if port, ok := parsePort(endpoint[closing+2:]); ok {
+					return host, port
+				}
+			}
+			return host, 2408
+		}
+	}
+	if i := strings.LastIndex(endpoint, ":"); i > -1 && strings.Count(endpoint, ":") == 1 {
+		if port, ok := parsePort(endpoint[i+1:]); ok {
+			return endpoint[:i], port
+		}
+	}
+	return endpoint, 2408
 }
 
 // Helper functions
@@ -669,12 +699,12 @@ func (s *WarpService) ImportConfig(privateKey, ipv4, ipv6, endpoint string) (*Wa
 
 // ExportAsJSON exports the current WARP config as JSON for sing-box
 func (s *WarpService) ExportAsJSON() (string, error) {
-	outbound, err := s.GenerateSingBoxOutbound()
+	endpoint, err := s.GenerateSingBoxEndpoint()
 	if err != nil {
 		return "", err
 	}
 
-	jsonBytes, err := json.MarshalIndent(outbound, "", "  ")
+	jsonBytes, err := json.MarshalIndent(endpoint, "", "  ")
 	if err != nil {
 		return "", err
 	}

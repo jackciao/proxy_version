@@ -1048,25 +1048,39 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		},
 	}
 
-	// Add WARP outbound if enabled
+	// Add WARP endpoint if enabled. sing-box 1.13 removed the legacy wireguard outbound,
+	// so WARP must be exposed as a top-level endpoint and routed by tag.
 	finalOutbound := "direct"
-	if warpEnabled && db != nil {
-		if sqlDB, ok := db.(*sql.DB); ok {
-			warpService := NewWarpService(sqlDB)
-			warpOutbound, err := warpService.GenerateSingBoxOutbound()
-			if err == nil && warpOutbound != nil {
-				outbounds = append(outbounds, warpOutbound)
-				finalOutbound = "warp-out"
-			}
+	if warpEnabled {
+		sqlDB, ok := db.(*sql.DB)
+		if !ok || sqlDB == nil {
+			return nil, fmt.Errorf("WARP 已开启但数据库连接不可用")
 		}
+
+		warpService := NewWarpService(sqlDB)
+		warpEndpoint, err := warpService.GenerateSingBoxEndpoint()
+		if err != nil {
+			return nil, fmt.Errorf("生成 WARP 配置失败: %v", err)
+		}
+		singboxConfig["endpoints"] = []map[string]interface{}{warpEndpoint}
+		singboxConfig["dns"] = map[string]interface{}{
+			"servers": []map[string]interface{}{
+				{"type": "local", "tag": "local"},
+			},
+		}
+		finalOutbound = "warp-out"
 	}
 
 	singboxConfig["outbounds"] = outbounds
 
 	// Add route - direct all traffic to final outbound
-	singboxConfig["route"] = map[string]interface{}{
+	route := map[string]interface{}{
 		"final": finalOutbound,
 	}
+	if warpEnabled {
+		route["default_domain_resolver"] = "local"
+	}
+	singboxConfig["route"] = route
 
 	return singboxConfig, nil
 }
