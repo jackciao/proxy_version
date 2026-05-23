@@ -125,55 +125,101 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 	// 步骤3: 验证域名并签发证书
 	var output string
 	var err error
+	skipIssue := false
+	skipInstall := false
 
-	if method == "dns" {
-		updateProgress(domain, 3, "正在进行 DNS 验证...", "running", "")
-		output, err = s.issueViaDNS(domain, dnsProvider, apiToken, cfEmail)
-	} else {
-		updateProgress(domain, 3, "正在通过 OpenResty 进行 HTTP 验证...", "running", "")
-		output, err = s.issueViaOpenRestyWebroot(domain)
-		if err != nil {
-			// Fallback: try legacy webroot paths
-			updateProgress(domain, 3, "尝试其他 Webroot 路径...", "running", "")
-			output, err = s.issueViaWebroot(domain)
-		}
-		if err != nil {
-			// Fallback: try standalone via host network namespace
-			updateProgress(domain, 3, "尝试 Standalone 模式...", "running", "")
-			output, err = s.issueViaStandaloneHost(domain)
-		}
+	// Reuse logic: if a still-valid certificate already exists locally we skip
+	// the ACME call entirely so repeated camouflage redeploys do not trip
+	// Let's Encrypt's "duplicate certificate" rate limit (5 per domain / week).
+	acmeFullchain := fmt.Sprintf("/root/.acme.sh/%s_ecc/fullchain.cer", domain)
+	if expiry, perr := parseCertExpiry(acmeFullchain); perr == nil && time.Until(expiry) > 30*24*time.Hour {
+		skipIssue = true
+		updateProgress(domain, 3, fmt.Sprintf("检测到 acme.sh 已有有效证书（%s 到期），跳过签发直接复用", expiry.Format("2006-01-02")), "running", "")
+	} else if expiry, perr := parseCertExpiry(certPath); perr == nil && time.Until(expiry) > 30*24*time.Hour {
+		skipIssue = true
+		skipInstall = true
+		updateProgress(domain, 3, fmt.Sprintf("已部署证书仍有效（%s 到期），直接复用并重新部署伪装站", expiry.Format("2006-01-02")), "running", "")
 	}
 
-	if err != nil {
-		if strings.Contains(output, "Cert success") || strings.Contains(output, "Cert already exists") {
-			// Certificate was actually issued successfully
+	if !skipIssue {
+		if method == "dns" {
+			updateProgress(domain, 3, "正在进行 DNS 验证...", "running", "")
+			output, err = s.issueViaDNS(domain, dnsProvider, apiToken, cfEmail)
 		} else {
-			var errMsg string
-			if strings.Contains(output, "port 80 is already used") {
-				errMsg = "80端口被占用，请使用 DNS 验证方式"
-			} else if strings.Contains(output, "invalid domain") || strings.Contains(output, "Error add TXT") {
-				errMsg = fmt.Sprintf("DNS 验证失败: %s", s.extractError(output))
-			} else {
-				errMsg = fmt.Sprintf("证书申请失败: %s", s.extractError(output))
+			updateProgress(domain, 3, "正在通过 OpenResty 进行 HTTP 验证...", "running", "")
+			output, err = s.issueViaOpenRestyWebroot(domain)
+			if err != nil {
+				// Fallback: try legacy webroot paths
+				updateProgress(domain, 3, "尝试其他 Webroot 路径...", "running", "")
+				output, err = s.issueViaWebroot(domain)
 			}
-			updateProgress(domain, 3, "验证失败", "failed", errMsg)
-			return "", "", fmt.Errorf(errMsg)
+			if err != nil {
+				// Fallback: try standalone via host network namespace
+				updateProgress(domain, 3, "尝试 Standalone 模式...", "running", "")
+				output, err = s.issueViaStandaloneHost(domain)
+			}
+		}
+
+		if err != nil {
+			if strings.Contains(output, "Cert success") || strings.Contains(output, "Cert already exists") {
+				// Certificate was actually issued successfully
+			} else {
+				var errMsg string
+				switch {
+				case strings.Contains(output, "rateLimited") || strings.Contains(output, "too many certificates") || strings.Contains(output, "exceeded"):
+					errMsg = "Let's Encrypt 已限速：同一域名 7 天内最多 5 张证书。请等待几天后再试，或在“证书机构”里换成 ZeroSSL / Buypass。本系统已自动跳过有效证书的重复申请，但当前域名近期申请过多。"
+				case strings.Contains(output, "port 80 is already used"):
+					errMsg = "80端口被占用，请使用 DNS 验证方式"
+				case strings.Contains(output, "invalid domain") || strings.Contains(output, "Error add TXT"):
+					errMsg = fmt.Sprintf("DNS 验证失败: %s", s.extractError(output))
+				default:
+					errMsg = fmt.Sprintf("证书申请失败: %s", s.extractError(output))
+				}
+				updateProgress(domain, 3, "验证失败", "failed", errMsg)
+				return "", "", fmt.Errorf(errMsg)
+			}
 		}
 	}
 
 	// 步骤4: 安装证书
-	updateProgress(domain, 4, "正在安装证书...", "running", "")
-	installArgs := []string{
-		"--install-cert", "-d", domain,
-		"--ecc",
-		"--fullchain-file", certPath,
-		"--key-file", keyPath,
-	}
+	if !skipInstall {
+		updateProgress(domain, 4, "正在安装证书...", "running", "")
+		installArgs := []string{
+			"--install-cert", "-d", domain,
+			"--ecc",
+			"--fullchain-file", certPath,
+			"--key-file", keyPath,
+		}
 
-	installOutput, err := s.runAcme(installArgs...)
-	if err != nil && !strings.Contains(installOutput, "Installing") && !strings.Contains(installOutput, "installed") {
-		updateProgress(domain, 4, "安装证书失败", "failed", installOutput)
-		return "", "", fmt.Errorf("安装证书失败: %s", installOutput)
+		installOutput, ierr := s.runAcme(installArgs...)
+		installOK := ierr == nil || strings.Contains(installOutput, "Installing") || strings.Contains(installOutput, "installed")
+
+		// Fallback: acme.sh may have removed the domain's .conf file in a previous
+		// "delete" round but the .cer / .key files are still on disk. In that
+		// case --install-cert reports "Domain not found" yet we can simply copy
+		// the cached files into the target paths so the camouflage redeploy can
+		// continue without a fresh ACME order.
+		if !installOK {
+			cachedCert := fmt.Sprintf("/root/.acme.sh/%s_ecc/fullchain.cer", domain)
+			cachedKey := fmt.Sprintf("/root/.acme.sh/%s_ecc/%s.key", domain, domain)
+			if data, cerr := os.ReadFile(cachedCert); cerr == nil {
+				if key, kerr := os.ReadFile(cachedKey); kerr == nil {
+					if werr := os.WriteFile(certPath, data, 0644); werr == nil {
+						if werr := os.WriteFile(keyPath, key, 0600); werr == nil {
+							installOK = true
+							updateProgress(domain, 4, "通过 acme.sh 缓存复用证书完成", "running", "")
+						}
+					}
+				}
+			}
+		}
+
+		if !installOK {
+			updateProgress(domain, 4, "安装证书失败", "failed", installOutput)
+			return "", "", fmt.Errorf("安装证书失败: %s", installOutput)
+		}
+	} else {
+		updateProgress(domain, 4, "证书已存在，跳过安装", "running", "")
 	}
 
 	// 步骤5: 配置自动续签
@@ -461,21 +507,23 @@ func (s *CertificateService) installAcme(email string) error {
 	return nil
 }
 
-// GetCertificateExpiry returns the expiry date of a certificate
-func (s *CertificateService) GetCertificateExpiry(domain string) (time.Time, error) {
-	certPath := filepath.Join(s.certDir, domain+".crt")
+// parseCertExpiry returns the not-after time of a PEM certificate at the
+// given path. Returns an error if the file does not exist or cannot be parsed.
+func parseCertExpiry(certPath string) (time.Time, error) {
+	if _, err := os.Stat(certPath); err != nil {
+		return time.Time{}, err
+	}
 	output, err := exec.Command("openssl", "x509", "-enddate", "-noout", "-in", certPath).Output()
 	if err != nil {
 		return time.Time{}, err
 	}
-
 	dateStr := strings.TrimPrefix(strings.TrimSpace(string(output)), "notAfter=")
-	expiry, err := time.Parse("Jan 2 15:04:05 2006 MST", dateStr)
-	if err != nil {
-		return time.Time{}, err
-	}
+	return time.Parse("Jan 2 15:04:05 2006 MST", dateStr)
+}
 
-	return expiry, nil
+// GetCertificateExpiry returns the expiry date of a certificate
+func (s *CertificateService) GetCertificateExpiry(domain string) (time.Time, error) {
+	return parseCertExpiry(filepath.Join(s.certDir, domain+".crt"))
 }
 
 // RenewCertificate forces renewal of a certificate

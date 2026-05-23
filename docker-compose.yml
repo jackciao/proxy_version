@@ -13,13 +13,14 @@ services:
       - ./mock_sys/etc/nginx:/etc/nginx:ro
       - ./mock_sys/etc/systemd/system:/etc/systemd/system
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./mock_sys/opt/1panel:/opt/1panel:ro
       - ./mock_sys/www/server:/www/server:ro
-      - ./mock_sys/root/.acme.sh:/root/.acme.sh
+      # Mount host /root/.acme.sh so we can reuse already-issued certificates
+      # and not trigger Let's Encrypt rate limits on repeated camouflage redeploys
+      - /root/.acme.sh:/root/.acme.sh
       # Mount host /proc for nsenter to access host network namespace (multi-IP detection)
       - /proc:/host/proc:ro
-      # Mount 1Panel OpenResty directories for camouflage site deployment
-      - /opt/1panel/apps/openresty:/opt/1panel/apps/openresty
+      # Mount entire 1Panel root so we can access openresty config, www/conf.d and www/sites
+      - /opt/1panel:/opt/1panel
     environment:
       - TZ=Asia/Shanghai
       - PORT=8080
