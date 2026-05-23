@@ -1212,6 +1212,15 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
             <div class="modal-body" id="modal-body"></div>
         </div>
     </div>
+    <div class="modal" id="move-modal">
+        <div class="modal-box" style="max-width:520px">
+            <div class="modal-head">
+                <h4 id="move-title">移动到</h4>
+                <button class="close" id="move-close" title="关闭">×</button>
+            </div>
+            <div class="modal-body" id="move-body" style="padding:14px 18px;max-height:60vh"></div>
+        </div>
+    </div>
     <div class="toast" id="toast"></div>
     <script>
     var token = localStorage.getItem('cloud_token');
@@ -1223,9 +1232,95 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
     var KEY_TRASH = 'cloud_trash';
     var KEY_QUOTA = 'cloud_quota_gb';
     var KEY_DATA = 'cloud_data_';
+    var DB_NAME = 'gotee_drive';
+    var DB_VERSION = 1;
+    var DB_STORE = 'files';
 
     function loadJSON(key, fb){ try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch(e){ return fb; } }
     function persistMeta(){ localStorage.setItem(KEY_FILES, JSON.stringify(files)); localStorage.setItem(KEY_TRASH, JSON.stringify(trash)); }
+
+    var _db = null;
+    function openDB(){
+        if (_db) return Promise.resolve(_db);
+        return new Promise(function(resolve, reject){
+            if (!window.indexedDB) { reject(new Error('当前浏览器不支持 IndexedDB')); return; }
+            var req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = function(e){
+                var db = e.target.result;
+                if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+            };
+            req.onsuccess = function(){ _db = req.result; resolve(_db); };
+            req.onerror = function(){ reject(req.error || new Error('打开 IndexedDB 失败')); };
+        });
+    }
+    function dbPut(id, blob){
+        return openDB().then(function(db){
+            return new Promise(function(resolve, reject){
+                try {
+                    var tx = db.transaction(DB_STORE, 'readwrite');
+                    tx.objectStore(DB_STORE).put(blob, id);
+                    tx.oncomplete = function(){ resolve(); };
+                    tx.onerror = function(){ reject(tx.error); };
+                    tx.onabort = function(){ reject(tx.error); };
+                } catch(e){ reject(e); }
+            });
+        });
+    }
+    function dbGet(id){
+        return openDB().then(function(db){
+            return new Promise(function(resolve, reject){
+                try {
+                    var tx = db.transaction(DB_STORE, 'readonly');
+                    var req = tx.objectStore(DB_STORE).get(id);
+                    req.onsuccess = function(){ resolve(req.result || null); };
+                    req.onerror = function(){ reject(req.error); };
+                } catch(e){ reject(e); }
+            });
+        });
+    }
+    function dbDel(id){
+        return openDB().then(function(db){
+            return new Promise(function(resolve){
+                try {
+                    var tx = db.transaction(DB_STORE, 'readwrite');
+                    tx.objectStore(DB_STORE).delete(id);
+                    tx.oncomplete = function(){ resolve(); };
+                    tx.onerror = function(){ resolve(); };
+                } catch(e){ resolve(); }
+            });
+        });
+    }
+    function dataURLtoBlob(dataUrl){
+        var parts = dataUrl.split(','); if (parts.length < 2) return null;
+        var mime = (parts[0].match(/data:([^;]+)/)||[])[1] || 'application/octet-stream';
+        try {
+            var bin = atob(parts[1]);
+            var bytes = new Uint8Array(bin.length);
+            for (var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+            return new Blob([bytes], {type: mime});
+        } catch(e){ return null; }
+    }
+    function migrateLegacyData(){
+        return openDB().then(function(){
+            var keys = [];
+            for (var i=0;i<localStorage.length;i++){
+                var k = localStorage.key(i);
+                if (k && k.indexOf(KEY_DATA) === 0) keys.push(k);
+            }
+            var chain = Promise.resolve();
+            keys.forEach(function(k){
+                chain = chain.then(function(){
+                    var data = localStorage.getItem(k);
+                    if (!data) return;
+                    var blob = dataURLtoBlob(data);
+                    if (!blob) { localStorage.removeItem(k); return; }
+                    var id = k.substring(KEY_DATA.length);
+                    return dbPut(id, blob).then(function(){ localStorage.removeItem(k); }, function(){});
+                });
+            });
+            return chain;
+        }).catch(function(){});
+    }
 
     function isLegacyEntry(f){
         if (!f || typeof f !== 'object') return true;
@@ -1245,7 +1340,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
 
     var files = normalizeList(loadJSON(KEY_FILES, []));
     var trash = normalizeList(loadJSON(KEY_TRASH, []));
-    var quotaGB = Number(localStorage.getItem(KEY_QUOTA)) || 5;
+    var quotaGB = Number(localStorage.getItem(KEY_QUOTA)) || 20;
     persistMeta();
 
     var cwd = [];
@@ -1288,9 +1383,17 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         return mime || '文件';
     }
 
-    function getFileData(id){ return localStorage.getItem(KEY_DATA + id); }
-    function setFileData(id, data){ localStorage.setItem(KEY_DATA + id, data); }
-    function removeFileData(id){ localStorage.removeItem(KEY_DATA + id); }
+    function getFileBlob(id){
+        return dbGet(id).then(function(blob){
+            if (blob) return blob;
+            var legacy = localStorage.getItem(KEY_DATA + id);
+            if (!legacy) return null;
+            var b = dataURLtoBlob(legacy);
+            if (b) dbPut(id, b).then(function(){ localStorage.removeItem(KEY_DATA + id); }, function(){});
+            return b;
+        });
+    }
+    function removeFileData(id){ localStorage.removeItem(KEY_DATA + id); return dbDel(id); }
 
     async function verify(){
         if (!token) { location.href = '/login.html'; return; }
@@ -1406,10 +1509,9 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         var html = '<div class="album">';
         for (var i=0;i<vids.length;i++){
             var v = vids[i];
-            var src = getFileData(v.id) || '';
             html += '<div class="photo video-tile" data-id="'+v.id+'">'+
-                    '<video src="'+src+'" preload="metadata" muted playsinline></video>'+
-                    '<div class="vfallback"><div style="font-size:34px">▶</div><div>'+escapeHTML(v.name.split(".").pop().toUpperCase())+' 视频</div><small>当前浏览器无法生成预览</small></div>'+
+                    '<video preload="metadata" muted playsinline></video>'+
+                    '<div class="vfallback"><div style="font-size:34px">▶</div><div>'+escapeHTML((v.name.split('.').pop()||'').toUpperCase())+' 视频</div><small>当前浏览器无法生成预览</small></div>'+
                     '<div class="play-overlay">▶</div>'+
                     '<div class="pmeta">'+escapeHTML(v.name)+' · '+fmtBytes(v.size||0)+'</div>'+
                     '</div>';
@@ -1417,19 +1519,21 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         html += '</div>';
         content.innerHTML = html;
         var tiles = content.querySelectorAll('.video-tile');
-        for (var j=0;j<tiles.length;j++){
-            (function(tile){
+        tiles.forEach(function(tile){
+            tile.addEventListener('click', function(){ openPreview(tile.getAttribute('data-id')); });
+            var id = tile.getAttribute('data-id');
+            getFileBlob(id).then(function(blob){
+                if (!blob){ tile.classList.add('no-preview'); return; }
+                var url = URL.createObjectURL(blob);
                 var videoEl = tile.querySelector('video');
+                videoEl.src = url;
                 var seeked = false;
-                videoEl.addEventListener('loadedmetadata', function(){
-                    try { videoEl.currentTime = Math.min(0.5, (videoEl.duration||1) * 0.1); } catch(e){}
-                });
+                videoEl.addEventListener('loadedmetadata', function(){ try { videoEl.currentTime = Math.min(0.5, (videoEl.duration||1) * 0.1); } catch(e){} });
                 videoEl.addEventListener('seeked', function(){ seeked = true; });
                 videoEl.addEventListener('error', function(){ tile.classList.add('no-preview'); });
-                setTimeout(function(){ if (!seeked && (videoEl.readyState||0) < 2) tile.classList.add('no-preview'); }, 4000);
-                tile.addEventListener('click', function(){ openPreview(tile.getAttribute('data-id')); });
-            })(tiles[j]);
-        }
+                setTimeout(function(){ if (!seeked && (videoEl.readyState||0) < 2) tile.classList.add('no-preview'); }, 5000);
+            }).catch(function(){ tile.classList.add('no-preview'); });
+        });
     }
 
     function renderAlbum(){
@@ -1442,17 +1546,19 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         var html = '<div class="album">';
         for (var i=0;i<photos.length;i++){
             var p = photos[i];
-            var src = getFileData(p.id) || '';
-            html += '<div class="photo" data-id="'+p.id+'"><img src="'+src+'" alt="'+escapeHTML(p.name)+'" loading="lazy"><div class="pmeta">'+escapeHTML(p.name)+' · '+fmtBytes(p.size||0)+'</div></div>';
+            html += '<div class="photo" data-id="'+p.id+'"><img alt="'+escapeHTML(p.name)+'" loading="lazy"><div class="pmeta">'+escapeHTML(p.name)+' · '+fmtBytes(p.size||0)+'</div></div>';
         }
         html += '</div>';
         content.innerHTML = html;
         var nodes = content.querySelectorAll('.photo');
-        for (var j=0;j<nodes.length;j++){
-            nodes[j].addEventListener('click', function(e){
-                openPreview(e.currentTarget.getAttribute('data-id'));
-            });
-        }
+        nodes.forEach(function(node){
+            node.addEventListener('click', function(){ openPreview(node.getAttribute('data-id')); });
+            var id = node.getAttribute('data-id');
+            getFileBlob(id).then(function(blob){
+                if (!blob) return;
+                node.querySelector('img').src = URL.createObjectURL(blob);
+            }).catch(function(){});
+        });
     }
 
     function renderAll(){
@@ -1512,11 +1618,60 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         else if (act==='download') downloadFile(id);
         else if (act==='star') toggleStar(id);
         else if (act==='rename') renameItem(id);
+        else if (act==='move') moveItem(id);
         else if (act==='trash') trashItem(id);
         else if (act==='restore') restoreItem(id);
         else if (act==='purge') purgeItem(id);
         else if (act==='enter' && f && f.folder) { cwd.push({id:f.id, name:f.name}); renderAll(); }
     }
+
+    function folderPath(folder){
+        var parts = [folder.name]; var p = folder.parent;
+        var safety = 0;
+        while (p && safety++ < 32){
+            var pf = files.filter(function(x){return x.id===p && x.folder;})[0];
+            if (!pf) break;
+            parts.unshift(pf.name);
+            p = pf.parent;
+        }
+        return '/ ' + parts.join(' / ');
+    }
+
+    function moveItem(id){
+        var f = files.filter(function(x){return x.id===id;})[0]; if (!f) return;
+        var blocked = collectDescendants(id);
+        var folders = files.filter(function(x){return x.folder && blocked.indexOf(x.id) === -1;});
+        var options = [{id:'', name:'/ 根目录'}].concat(folders.map(function(x){return {id:x.id, name:folderPath(x)};}));
+        options = options.filter(function(o){return o.id !== (f.parent||'');});
+        var body = document.getElementById('move-body');
+        body.innerHTML = '<div style="color:#6b7280;font-size:13px;margin-bottom:10px">移动「'+escapeHTML(f.name)+'」到：</div>';
+        if (!options.length){
+            body.innerHTML += '<div style="color:#9aa3af;padding:20px 0">没有可选的目标文件夹</div>';
+        } else {
+            var list = document.createElement('div');
+            for (var i=0;i<options.length;i++){
+                var opt = options[i];
+                var btn = document.createElement('button');
+                btn.className = 'btn';
+                btn.style.cssText = 'display:flex;width:100%;justify-content:flex-start;text-align:left;margin-bottom:8px;padding:10px 14px;font-size:13px;color:#1f2937';
+                btn.textContent = opt.name;
+                (function(targetId){
+                    btn.onclick = function(){
+                        f.parent = targetId;
+                        f.modified = todayStr();
+                        persistMeta();
+                        closeMoveModal();
+                        renderAll();
+                        toast('已移动');
+                    };
+                })(opt.id);
+                list.appendChild(btn);
+            }
+            body.appendChild(list);
+        }
+        document.getElementById('move-modal').classList.add('open');
+    }
+    function closeMoveModal(){ document.getElementById('move-modal').classList.remove('open'); document.getElementById('move-body').innerHTML=''; }
 
     function showRowMenu(btn){
         closeRowMenu();
@@ -1531,6 +1686,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
             if (f.folder) items.push({label:'进入文件夹', act:'enter'});
             else { items.push({label:'查看', act:'open'}); items.push({label:'下载', act:'download'}); }
             items.push({label:f.starred?'取消星标':'添加星标', act:'star'});
+            items.push({label:'移动到...', act:'move'});
             items.push({label:'重命名', act:'rename'});
             items.push({sep:true});
             items.push({label:'移入回收站', act:'trash', danger:true});
@@ -1619,36 +1775,49 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         persistMeta(); renderAll();
     }
 
-    function downloadFile(id){
+    var activeObjectURLs = [];
+    function trackObjectURL(url){ if (url) activeObjectURLs.push(url); return url; }
+    function revokeActiveObjectURLs(){ for (var i=0;i<activeObjectURLs.length;i++){ try { URL.revokeObjectURL(activeObjectURLs[i]); } catch(e){} } activeObjectURLs = []; }
+
+    async function downloadFile(id){
         var f = files.concat(trash).filter(function(x){return x.id===id;})[0]; if (!f || f.folder) return;
-        var data = getFileData(id); if (!data) { toast('文件数据不可用'); return; }
-        var a = document.createElement('a'); a.href = data; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+        var blob = null; try { blob = await getFileBlob(id); } catch(e){}
+        if (!blob) { toast('文件数据不可用'); return; }
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a'); a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ try { URL.revokeObjectURL(url); } catch(e){} }, 2000);
     }
 
-    function openPreview(id){
+    async function openPreview(id){
         var f = files.concat(trash).filter(function(x){return x.id===id;})[0]; if (!f || f.folder) return;
-        var data = getFileData(id);
-        var body = document.getElementById('modal-body'); body.innerHTML = ''; body.className = 'modal-body center';
+        var body = document.getElementById('modal-body'); body.innerHTML = '<div class="empty">加载中...</div>'; body.className = 'modal-body center';
         document.getElementById('modal-title').textContent = f.name;
         document.getElementById('modal-meta').textContent = fmtBytes(f.size||0) + ' · ' + typeLabel(f.mime, f.name, false);
         document.getElementById('modal-download').onclick = function(){ downloadFile(id); };
+        document.getElementById('modal').classList.add('open');
+
+        var blob = null;
+        try { blob = await getFileBlob(id); } catch(e){}
+        if (!blob) { body.innerHTML = '<div style="padding:48px;color:#9aa3af">文件数据不可用</div>'; return; }
+        var url = trackObjectURL(URL.createObjectURL(blob));
         var cat = fileCategory(f.mime, f.name);
-        if (!data) { body.innerHTML = '<div style="padding:48px;color:#9aa3af">文件数据不可用</div>'; }
-        else if (cat === 'image') { var img = document.createElement('img'); img.src = data; body.appendChild(img); }
+        body.innerHTML = ''; body.className = 'modal-body center';
+        if (cat === 'image') { var img = document.createElement('img'); img.src = url; body.appendChild(img); }
         else if (cat === 'video') {
             var v = document.createElement('video');
-            v.src = data; v.controls = true; v.autoplay = false; v.playsInline = true; v.preload = 'metadata';
+            v.src = url; v.controls = true; v.autoplay = false; v.playsInline = true; v.preload = 'metadata';
             v.setAttribute('controlsList', 'nodownload');
             v.onerror = function(){ showVideoFallback(body, f); };
             v.addEventListener('loadedmetadata', function(){ try { v.currentTime = Math.min(0.1, (v.duration||1) * 0.05); } catch(e){} });
             body.appendChild(v);
             setTimeout(function(){ if ((v.readyState||0) < 1) showVideoFallback(body, f); }, 5000);
         }
-        else if (cat === 'audio') { var a = document.createElement('audio'); a.src = data; a.controls = true; body.appendChild(a); }
-        else if (cat === 'pdf') { body.className = 'modal-body'; var ifr = document.createElement('iframe'); ifr.src = data; body.appendChild(ifr); }
+        else if (cat === 'audio') { var a = document.createElement('audio'); a.src = url; a.controls = true; body.appendChild(a); }
+        else if (cat === 'pdf') { body.className = 'modal-body'; var ifr = document.createElement('iframe'); ifr.src = url; body.appendChild(ifr); }
         else if (cat === 'doc') {
             body.className = 'modal-body';
-            decodeDataURL(data).then(function(text){
+            try {
+                var text = await blob.text();
                 var lower = f.name.toLowerCase();
                 if (lower.endsWith('.csv') || lower.endsWith('.tsv')) {
                     var sep = lower.endsWith('.tsv') ? '\t' : ',';
@@ -1656,11 +1825,10 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
                 } else {
                     var pre = document.createElement('pre'); pre.textContent = text; body.appendChild(pre);
                 }
-            }).catch(function(){ body.innerHTML = '<div style="padding:48px;color:#9aa3af">该文件类型不支持在线查看，请下载后打开</div>'; });
+            } catch(e){ body.innerHTML = '<div style="padding:48px;color:#9aa3af">该文件类型不支持在线查看，请下载后打开</div>'; }
         } else {
             body.innerHTML = '<div style="padding:48px;color:#9aa3af">该文件类型不支持在线查看，请下载后打开</div>';
         }
-        document.getElementById('modal').classList.add('open');
     }
 
     function showVideoFallback(body, f){
@@ -1668,19 +1836,6 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         var ext = (f.name.split('.').pop()||'').toUpperCase();
         body.innerHTML = '<div class="video-error"><div class="ico">⚠</div><div style="font-size:16px;font-weight:600;color:#1f2937;margin-bottom:6px">无法在浏览器中播放</div><div style="margin-bottom:14px">当前浏览器对 '+escapeHTML(ext)+' 格式（如 .MOV / HEVC / ProRes 等）不支持解码。请下载到本地用专用播放器查看。</div><button class="btn primary" id="vfb-download">下载视频</button></div>';
         document.getElementById('vfb-download').onclick = function(){ downloadFile(f.id); };
-    }
-
-    function decodeDataURL(dataUrl){
-        return new Promise(function(resolve, reject){
-            try {
-                var idx = dataUrl.indexOf(','); if (idx<0) { reject(); return; }
-                var b64 = dataUrl.slice(idx+1);
-                var bin = atob(b64);
-                var bytes = new Uint8Array(bin.length); for (var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-                var dec = new TextDecoder('utf-8', {fatal:false});
-                resolve(dec.decode(bytes));
-            } catch(e){ reject(e); }
-        });
     }
 
     function csvToTable(text, sep){
@@ -1715,7 +1870,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         return rows;
     }
 
-    function closeModal(){ document.getElementById('modal').classList.remove('open'); document.getElementById('modal-body').innerHTML=''; }
+    function closeModal(){ document.getElementById('modal').classList.remove('open'); document.getElementById('modal-body').innerHTML=''; revokeActiveObjectURLs(); }
 
     function saveQuota(){
         var v = parseFloat(document.getElementById('quota-input').value);
@@ -1732,32 +1887,42 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
         persistMeta(); renderAll();
     }
 
-    function readAsDataURL(file){
-        return new Promise(function(resolve, reject){
-            var r = new FileReader();
-            r.onload = function(){ resolve(r.result); };
-            r.onerror = reject;
-            r.readAsDataURL(file);
-        });
-    }
+    var MAX_SINGLE = 20 * 1024 * 1024 * 1024;
 
     async function handleUpload(list){
         var arr = Array.prototype.slice.call(list);
         if (!arr.length) return;
+        for (var i=0;i<arr.length;i++){
+            if (arr[i].size > MAX_SINGLE){ toast('单个文件不能超过 20GB：' + arr[i].name); return; }
+        }
         var sum = 0; for (var i=0;i<arr.length;i++) sum += arr[i].size;
         var available = quotaBytes() - usedBytes();
-        if (sum > available){ toast('剩余空间不足，无法上传（剩余 ' + fmtBytes(available) + '）'); return; }
+        if (sum > available){
+            if (confirm('本次上传 ' + fmtBytes(sum) + ' 将超过当前配额（剩余 ' + fmtBytes(available) + '）。是否自动扩大配额以容纳本次上传？')){
+                var needBytes = usedBytes() + sum;
+                quotaGB = Math.max(quotaGB, Math.ceil(needBytes / (1024*1024*1024)) + 1);
+                localStorage.setItem(KEY_QUOTA, String(quotaGB));
+            } else { return; }
+        }
         var parent = currentParent();
+        var uploaded = 0; var failed = [];
         for (var j=0;j<arr.length;j++){
             var f = arr[j];
+            var id = 'f_' + newId();
             try {
-                var data = await readAsDataURL(f);
-                var id = 'f_' + newId();
-                try { setFileData(id, data); } catch(err){ toast('保存「'+f.name+'」失败：'+(err && err.name === 'QuotaExceededError' ? '浏览器存储空间不足' : '请重试')); continue; }
+                await dbPut(id, f);
                 files.unshift({id:id, name:f.name, folder:false, mime:f.type||'', size:f.size, modified:todayStr(), parent:parent, uploadedAt:Date.now(), starred:false});
-            } catch(e){ toast('读取 ' + f.name + ' 失败'); }
+                uploaded++;
+                persistMeta(); renderAll();
+            } catch(err){
+                var msg = err && err.name === 'QuotaExceededError' ? '浏览器存储空间不足' : ((err && err.message) || '未知错误');
+                failed.push(f.name + '（' + msg + '）');
+            }
         }
-        persistMeta(); renderAll(); toast('上传完成');
+        persistMeta(); renderAll();
+        if (uploaded > 0 && failed.length === 0) toast('已上传 ' + uploaded + ' 个文件');
+        else if (uploaded > 0 && failed.length > 0) alert('已上传 ' + uploaded + ' 个，' + failed.length + ' 个失败：\n' + failed.join('\n'));
+        else if (failed.length > 0) alert('上传失败：\n' + failed.join('\n'));
     }
 
     function logout(){
@@ -1782,7 +1947,9 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
     };
     document.getElementById('modal-close').onclick = closeModal;
     document.getElementById('modal').addEventListener('click', function(e){ if (e.target === this) closeModal(); });
-    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+    document.getElementById('move-close').onclick = closeMoveModal;
+    document.getElementById('move-modal').addEventListener('click', function(e){ if (e.target === this) closeMoveModal(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape'){ closeModal(); closeMoveModal(); } });
     document.querySelectorAll('.rail-btn').forEach(function(b){ b.onclick = function(){ pane = b.getAttribute('data-pane'); section='all'; query=''; document.getElementById('search').value=''; renderAll(); }; });
     document.querySelectorAll('.quick-item').forEach(function(q){ q.onclick = function(){ section = q.getAttribute('data-section'); pane='storage'; renderAll(); }; });
     document.getElementById('user-area').onclick = logout;
@@ -1790,6 +1957,7 @@ const streamVaultDriveHTML = `<!DOCTYPE html>
     setUser();
     renderAll();
     verify();
+    migrateLegacyData().then(function(){ renderAll(); });
     </script>
 </body>
 </html>`
