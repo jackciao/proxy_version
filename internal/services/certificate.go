@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -131,14 +132,18 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 	// Reuse logic: if a still-valid certificate already exists locally we skip
 	// the ACME call entirely so repeated camouflage redeploys do not trip
 	// Let's Encrypt's "duplicate certificate" rate limit (5 per domain / week).
+	// We require that the cached private key actually matches the certificate
+	// - acme.sh may have rotated the key on a failed previous renewal which
+	// leaves a stale fullchain.cer that nginx will refuse to load.
 	acmeFullchain := fmt.Sprintf("/root/.acme.sh/%s_ecc/fullchain.cer", domain)
-	if expiry, perr := parseCertExpiry(acmeFullchain); perr == nil && time.Until(expiry) > 30*24*time.Hour {
-		skipIssue = true
-		updateProgress(domain, 3, fmt.Sprintf("检测到 acme.sh 已有有效证书（%s 到期），跳过签发直接复用", expiry.Format("2006-01-02")), "running", "")
-	} else if expiry, perr := parseCertExpiry(certPath); perr == nil && time.Until(expiry) > 30*24*time.Hour {
+	acmeKey := fmt.Sprintf("/root/.acme.sh/%s_ecc/%s.key", domain, domain)
+	if expiry, ok := usableCachedCert(certPath, keyPath); ok {
 		skipIssue = true
 		skipInstall = true
 		updateProgress(domain, 3, fmt.Sprintf("已部署证书仍有效（%s 到期），直接复用并重新部署伪装站", expiry.Format("2006-01-02")), "running", "")
+	} else if expiry, ok := usableCachedCert(acmeFullchain, acmeKey); ok {
+		skipIssue = true
+		updateProgress(domain, 3, fmt.Sprintf("检测到 acme.sh 已有有效证书（%s 到期），跳过签发直接复用", expiry.Format("2006-01-02")), "running", "")
 	}
 
 	if !skipIssue {
@@ -519,6 +524,44 @@ func parseCertExpiry(certPath string) (time.Time, error) {
 	}
 	dateStr := strings.TrimPrefix(strings.TrimSpace(string(output)), "notAfter=")
 	return time.Parse("Jan 2 15:04:05 2006 MST", dateStr)
+}
+
+// certKeyMatch returns true when the certificate and private key files share
+// the same public key. acme.sh occasionally rotates the private key on a
+// failed renewal (e.g. when Let's Encrypt rate-limits the new order) which
+// leaves a stale fullchain.cer on disk that cannot be served because its
+// public key no longer matches the local key. We must catch that mismatch
+// before declaring the cached certificate "valid for reuse", otherwise
+// nginx fails to load with key values mismatch.
+func certKeyMatch(certPath, keyPath string) bool {
+	certPub, err := exec.Command("sh", "-c",
+		fmt.Sprintf("openssl x509 -in %q -pubkey -noout | openssl pkey -pubin -outform DER", certPath)).Output()
+	if err != nil || len(certPub) == 0 {
+		return false
+	}
+	keyPub, err := exec.Command("sh", "-c",
+		fmt.Sprintf("openssl pkey -in %q -pubout -outform DER", keyPath)).Output()
+	if err != nil || len(keyPub) == 0 {
+		return false
+	}
+	return bytes.Equal(certPub, keyPub)
+}
+
+// usableCachedCert checks whether the given (cert, key) pair is still valid
+// for reuse: file exists, expiry > 30 days, public key matches private key.
+// On success returns the parsed expiry time.
+func usableCachedCert(certPath, keyPath string) (time.Time, bool) {
+	expiry, err := parseCertExpiry(certPath)
+	if err != nil || time.Until(expiry) <= 30*24*time.Hour {
+		return time.Time{}, false
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		return time.Time{}, false
+	}
+	if !certKeyMatch(certPath, keyPath) {
+		return time.Time{}, false
+	}
+	return expiry, true
 }
 
 // GetCertificateExpiry returns the expiry date of a certificate
