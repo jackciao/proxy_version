@@ -3,7 +3,9 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
 
+	"proxy_version/internal/models"
 	"proxy_version/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -136,7 +138,8 @@ func ExportWarpConfig(db *sql.DB) gin.HandlerFunc {
 func ToggleNodeWarp(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		nodeID := c.Param("id")
-		
+		userID := c.GetInt64("user_id")
+
 		var req struct {
 			Enabled bool `json:"enabled"`
 		}
@@ -150,7 +153,16 @@ func ToggleNodeWarp(db *sql.DB) gin.HandlerFunc {
 			warpEnabled = 1
 		}
 
-		result, err := db.Exec("UPDATE nodes SET warp_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", warpEnabled, nodeID)
+		var protocol, status, config string
+		if err := db.QueryRow(
+			"SELECT protocol, status, config FROM nodes WHERE id = ? AND user_id = ?",
+			nodeID, userID,
+		).Scan(&protocol, &status, &config); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "节点不存在"})
+			return
+		}
+
+		result, err := db.Exec("UPDATE nodes SET warp_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", warpEnabled, nodeID, userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
 			return
@@ -162,9 +174,28 @@ func ToggleNodeWarp(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		restarted := false
+		if status == models.NodeStatusRunning {
+			id, err := strconv.ParseInt(nodeID, 10, 64)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "节点 ID 无效"})
+				return
+			}
+			proxyService := services.NewProxyService()
+			proxyService.StopNode(id)
+			if err := proxyService.StartNode(id, protocol, config, req.Enabled, db); err != nil {
+				db.Exec("UPDATE nodes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", models.NodeStatusError, nodeID, userID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "WARP 设置已更新，但节点重启失败: " + err.Error()})
+				return
+			}
+			db.Exec("UPDATE nodes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", models.NodeStatusRunning, nodeID, userID)
+			restarted = true
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"message":      "WARP 设置已更新",
 			"warp_enabled": req.Enabled,
+			"restarted":    restarted,
 		})
 	}
 }

@@ -167,6 +167,28 @@ func TestListenAddressConflictsHandlesIPv6AndWildcards(t *testing.T) {
 	}
 }
 
+func TestBuildWarpOutboundIncludesIPv6AndPrefersIPv4Domains(t *testing.T) {
+	outbound := buildWarpOutbound(&WarpConfig{
+		PrivateKey:  "test-private-key",
+		IPv4Address: "172.16.0.2/32",
+		IPv6Address: "2606:4700:110:8765::1/128",
+		Endpoint:    "engage.cloudflareclient.com:2408",
+	})
+
+	if outbound["domain_strategy"] != "prefer_ipv4" {
+		t.Fatalf("domain_strategy = %v, want prefer_ipv4", outbound["domain_strategy"])
+	}
+	localAddress := outbound["local_address"].([]string)
+	if len(localAddress) != 2 {
+		t.Fatalf("local_address length = %d, want 2", len(localAddress))
+	}
+	peers := outbound["peers"].([]map[string]interface{})
+	allowedIPs := peers[0]["allowed_ips"].([]string)
+	if len(allowedIPs) != 2 || allowedIPs[0] != "0.0.0.0/0" || allowedIPs[1] != "::/0" {
+		t.Fatalf("allowed_ips = %v, want IPv4 and IPv6 defaults", allowedIPs)
+	}
+}
+
 func emptyNodeConfig() models.NodeConfig {
 	return models.NodeConfig{}
 }

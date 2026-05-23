@@ -68,7 +68,7 @@ func (s *WarpService) GetStatus() WarpStatus {
 		status.IPv6 = config.IPv6Address
 		status.Endpoint = config.Endpoint
 		status.Config = config
-		
+
 		// 获取通过 WARP 的实际公网出口 IP
 		status.PublicIP = s.getWarpPublicIP()
 	}
@@ -84,23 +84,23 @@ func (s *WarpService) getWarpPublicIP() string {
 		"https://api.ipify.org",
 		"https://ifconfig.me/ip",
 	}
-	
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	
+
 	for _, url := range services {
 		resp, err := client.Get(url)
 		if err != nil {
 			continue
 		}
 		defer resp.Body.Close()
-		
+
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			continue
 		}
-		
+
 		content := strings.TrimSpace(string(body))
-		
+
 		// 1.1.1.1/cdn-cgi/trace 返回格式: ip=x.x.x.x
 		if strings.Contains(url, "cdn-cgi/trace") {
 			lines := strings.Split(content, "\n")
@@ -116,7 +116,7 @@ func (s *WarpService) getWarpPublicIP() string {
 			}
 		}
 	}
-	
+
 	return "获取失败"
 }
 
@@ -138,7 +138,7 @@ func (s *WarpService) InstallWgcf() error {
 	// Format: https://github.com/ViRb3/wgcf/releases/download/v2.2.22/wgcf_2.2.22_linux_amd64
 	version := "2.2.22"
 	url := fmt.Sprintf("https://github.com/ViRb3/wgcf/releases/download/v%s/wgcf_%s_linux_%s", version, version, arch)
-	
+
 	cmd := exec.Command("bash", "-c", fmt.Sprintf(
 		"curl -fsSL -o %s %s && chmod +x %s",
 		wgcfPath, url, wgcfPath,
@@ -204,7 +204,7 @@ func (s *WarpService) generateWireGuardKeys() (privateKey, publicKey string, err
 	privKeyBytes, err := cmd.Output()
 	if err == nil {
 		privKey := strings.TrimSpace(string(privKeyBytes))
-		
+
 		cmd = exec.Command("wg", "pubkey")
 		cmd.Stdin = strings.NewReader(privKey)
 		pubKeyBytes, err := cmd.Output()
@@ -310,7 +310,7 @@ func (s *WarpService) Refresh() (*WarpConfig, error) {
 	var newConfig *WarpConfig
 	var err error
 	maxRetries := 10
-	
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// Delete existing config
 		if delErr := s.DeleteConfig(); delErr != nil {
@@ -325,11 +325,11 @@ func (s *WarpService) Refresh() (*WarpConfig, error) {
 
 		// Check if we got a different IP
 		if newConfig.IPv4Address != oldIPv4 || newConfig.IPv6Address != oldIPv6 {
-			fmt.Printf("WARP Refresh: got new IP after %d attempts (old: %s, new: %s)\n", 
+			fmt.Printf("WARP Refresh: got new IP after %d attempts (old: %s, new: %s)\n",
 				attempt, oldIPv4, newConfig.IPv4Address)
 			break
 		}
-		
+
 		if attempt < maxRetries {
 			fmt.Printf("WARP Refresh: got same IP on attempt %d, retrying...\n", attempt)
 			// Exponential backoff: 1s, 2s, 3s, ... up to 5s max
@@ -503,39 +503,51 @@ func (s *WarpService) unregisterDevice(deviceID, accessToken string) {
 	}
 }
 
-// GenerateSingBoxOutbound generates sing-box WireGuard outbound config for sing-box 1.11+
-// Returns both the endpoint and outbound configs
-// Note: Only IPv4 is used to ensure better streaming service compatibility
+// GenerateSingBoxOutbound generates sing-box WireGuard outbound config.
 func (s *WarpService) GenerateSingBoxOutbound() (map[string]interface{}, error) {
 	config, err := s.GetConfig()
 	if err != nil || config == nil {
 		return nil, fmt.Errorf("WARP 未配置")
 	}
 
-	// New sing-box 1.11+ format: use endpoint instead of legacy wireguard outbound
-	// The outbound references the endpoint
-	// Only use IPv4 address for better streaming service unlock compatibility
+	return buildWarpOutbound(config), nil
+}
+
+func buildWarpOutbound(config *WarpConfig) map[string]interface{} {
+	localAddress := []string{}
+	allowedIPs := []string{}
+	if config.IPv4Address != "" {
+		localAddress = append(localAddress, config.IPv4Address)
+		allowedIPs = append(allowedIPs, "0.0.0.0/0")
+	}
+	if config.IPv6Address != "" {
+		localAddress = append(localAddress, config.IPv6Address)
+		allowedIPs = append(allowedIPs, "::/0")
+	}
+	if len(localAddress) == 0 {
+		localAddress = append(localAddress, "172.16.0.2/32")
+		allowedIPs = append(allowedIPs, "0.0.0.0/0")
+	}
+
 	outbound := map[string]interface{}{
-		"type": "wireguard",
-		"tag":  "warp-out",
-		"local_address": []string{
-			config.IPv4Address,
-			// IPv6 is intentionally omitted to force IPv4-only routing for better streaming compatibility
-		},
-		"private_key": config.PrivateKey,
+		"type":            "wireguard",
+		"tag":             "warp-out",
+		"domain_strategy": "prefer_ipv4",
+		"local_address":   localAddress,
+		"private_key":     config.PrivateKey,
 		"peers": []map[string]interface{}{
 			{
 				"server":      strings.Split(config.Endpoint, ":")[0],
 				"server_port": 2408,
 				"public_key":  "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", // Cloudflare WARP public key
 				"reserved":    []int{0, 0, 0},
-				"allowed_ips": []string{"0.0.0.0/0"}, // IPv4 only for better streaming unlock
+				"allowed_ips": allowedIPs,
 			},
 		},
 		"mtu": 1280,
 	}
 
-	return outbound, nil
+	return outbound
 }
 
 // Helper functions
@@ -672,15 +684,15 @@ func (s *WarpService) ExportAsJSON() (string, error) {
 
 // StreamingCheckResult represents the result of streaming service unlock check
 type StreamingCheckResult struct {
-	Netflix     StreamingStatus `json:"netflix"`
-	DisneyPlus  StreamingStatus `json:"disney_plus"`
-	YouTube     StreamingStatus `json:"youtube"`
-	ChatGPT     StreamingStatus `json:"chatgpt"`
-	Max         StreamingStatus `json:"max"`
-	AppleTV     StreamingStatus `json:"apple_tv"`
-	PrimeVideo  StreamingStatus `json:"prime_video"`
-	CheckedAt   int64           `json:"checked_at"`
-	WarpIP      string          `json:"warp_ip"`
+	Netflix    StreamingStatus `json:"netflix"`
+	DisneyPlus StreamingStatus `json:"disney_plus"`
+	YouTube    StreamingStatus `json:"youtube"`
+	ChatGPT    StreamingStatus `json:"chatgpt"`
+	Max        StreamingStatus `json:"max"`
+	AppleTV    StreamingStatus `json:"apple_tv"`
+	PrimeVideo StreamingStatus `json:"prime_video"`
+	CheckedAt  int64           `json:"checked_at"`
+	WarpIP     string          `json:"warp_ip"`
 }
 
 type StreamingStatus struct {
@@ -711,13 +723,13 @@ func (s *WarpService) CheckStreamingUnlock() (*StreamingCheckResult, error) {
 
 	// Check Netflix
 	result.Netflix = s.checkNetflix(client)
-	
+
 	// Check Disney+
 	result.DisneyPlus = s.checkDisneyPlus(client)
-	
+
 	// Check YouTube Premium
 	result.YouTube = s.checkYouTube(client)
-	
+
 	// Check ChatGPT
 	result.ChatGPT = s.checkChatGPT(client)
 
@@ -740,18 +752,18 @@ func (s *WarpService) checkNetflix(client *http.Client) StreamingStatus {
 		"https://www.netflix.com/title/80018499", // Self-produced: Stranger Things
 		"https://www.netflix.com/title/70143836", // Self-produced: Breaking Bad
 	}
-	
+
 	for _, url := range urls {
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-		
+
 		resp, err := client.Do(req)
 		if err != nil {
 			continue
 		}
 		resp.Body.Close()
-		
+
 		// 200 or 301/302 to video page = unlocked
 		// 403 or redirect to "not available" = blocked
 		if resp.StatusCode == 200 || resp.StatusCode == 301 || resp.StatusCode == 302 {
@@ -761,7 +773,7 @@ func (s *WarpService) checkNetflix(client *http.Client) StreamingStatus {
 			}
 		}
 	}
-	
+
 	return StreamingStatus{Unlocked: false, Message: "未知"}
 }
 
@@ -771,41 +783,41 @@ func (s *WarpService) checkDisneyPlus(client *http.Client) StreamingStatus {
 		"https://www.disneyplus.com/",
 		"https://www.disneyplus.com/movies/encanto/33q7DY1rtHQH",
 	}
-	
+
 	for _, url := range urls {
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-		
+
 		resp, err := client.Do(req)
 		if err != nil {
 			continue
 		}
 		defer resp.Body.Close()
-		
+
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := string(body)
-		
+
 		// Check for region block indicators
 		if strings.Contains(bodyStr, "Sorry, Disney+ is not available in your region") ||
-		   strings.Contains(bodyStr, "not available in your country") ||
-		   strings.Contains(bodyStr, "unavailable in your location") ||
-		   strings.Contains(bodyStr, "error-code-73") ||
-		   strings.Contains(bodyStr, "geo-blocked") {
+			strings.Contains(bodyStr, "not available in your country") ||
+			strings.Contains(bodyStr, "unavailable in your location") ||
+			strings.Contains(bodyStr, "error-code-73") ||
+			strings.Contains(bodyStr, "geo-blocked") {
 			return StreamingStatus{Unlocked: false, Message: "不支持"}
 		}
-		
+
 		// Check for successful access
-		if resp.StatusCode == 200 && 
-		   (strings.Contains(bodyStr, "disneyplus") || 
-		    strings.Contains(bodyStr, "Disney+") ||
-		    strings.Contains(bodyStr, "Sign Up") ||
-		    strings.Contains(bodyStr, "Log In") ||
-		    strings.Contains(bodyStr, "Start Streaming")) {
+		if resp.StatusCode == 200 &&
+			(strings.Contains(bodyStr, "disneyplus") ||
+				strings.Contains(bodyStr, "Disney+") ||
+				strings.Contains(bodyStr, "Sign Up") ||
+				strings.Contains(bodyStr, "Log In") ||
+				strings.Contains(bodyStr, "Start Streaming")) {
 			return StreamingStatus{Unlocked: true, Message: "可解锁"}
 		}
-		
+
 		// Redirect to regional site usually means available
 		if resp.StatusCode == 302 || resp.StatusCode == 301 {
 			location := resp.Header.Get("Location")
@@ -814,7 +826,7 @@ func (s *WarpService) checkDisneyPlus(client *http.Client) StreamingStatus {
 			}
 		}
 	}
-	
+
 	return StreamingStatus{Unlocked: false, Message: "未知"}
 }
 
@@ -822,44 +834,44 @@ func (s *WarpService) checkYouTube(client *http.Client) StreamingStatus {
 	// Check YouTube Premium availability by checking music.youtube.com
 	req, _ := http.NewRequest("GET", "https://music.youtube.com/", nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return StreamingStatus{Unlocked: false, Message: "检测失败"}
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode == 200 {
 		return StreamingStatus{Unlocked: true, Message: "可解锁"}
 	}
-	
+
 	return StreamingStatus{Unlocked: false, Message: "受限"}
 }
 
 func (s *WarpService) checkChatGPT(client *http.Client) StreamingStatus {
 	req, _ := http.NewRequest("GET", "https://chat.openai.com/", nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return StreamingStatus{Unlocked: false, Message: "检测失败"}
 	}
 	defer resp.Body.Close()
-	
+
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
-	
+
 	// Check for common block indicators
-	if strings.Contains(bodyStr, "unavailable in your country") || 
-	   strings.Contains(bodyStr, "not available") ||
-	   strings.Contains(bodyStr, "Access denied") {
+	if strings.Contains(bodyStr, "unavailable in your country") ||
+		strings.Contains(bodyStr, "not available") ||
+		strings.Contains(bodyStr, "Access denied") {
 		return StreamingStatus{Unlocked: false, Message: "不支持"}
 	}
-	
+
 	if resp.StatusCode == 200 || resp.StatusCode == 302 || resp.StatusCode == 301 {
 		return StreamingStatus{Unlocked: true, Message: "可访问"}
 	}
-	
+
 	return StreamingStatus{Unlocked: false, Message: "受限"}
 }
 
@@ -870,40 +882,40 @@ func (s *WarpService) checkMax(client *http.Client) StreamingStatus {
 		"https://www.max.com/",
 		"https://www.max.com/api/orchestration/v1/graphql",
 	}
-	
+
 	for _, url := range urls {
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-		
+
 		resp, err := client.Do(req)
 		if err != nil {
 			continue
 		}
 		defer resp.Body.Close()
-		
+
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := string(body)
-		
+
 		// Check for region block indicators
 		if strings.Contains(bodyStr, "not available in your region") ||
-		   strings.Contains(bodyStr, "unavailable in your country") ||
-		   strings.Contains(bodyStr, "geo-restricted") ||
-		   strings.Contains(bodyStr, "Sorry, Max isn't available") ||
-		   strings.Contains(bodyStr, "not yet available") {
+			strings.Contains(bodyStr, "unavailable in your country") ||
+			strings.Contains(bodyStr, "geo-restricted") ||
+			strings.Contains(bodyStr, "Sorry, Max isn't available") ||
+			strings.Contains(bodyStr, "not yet available") {
 			return StreamingStatus{Unlocked: false, Message: "不支持"}
 		}
-		
+
 		// Check for successful access indicators
-		if resp.StatusCode == 200 && 
-		   (strings.Contains(bodyStr, "max.com") || 
-		    strings.Contains(bodyStr, "Sign In") ||
-		    strings.Contains(bodyStr, "Start Watching") ||
-		    strings.Contains(bodyStr, "Browse") ||
-		    strings.Contains(bodyStr, "Subscribe")) {
+		if resp.StatusCode == 200 &&
+			(strings.Contains(bodyStr, "max.com") ||
+				strings.Contains(bodyStr, "Sign In") ||
+				strings.Contains(bodyStr, "Start Watching") ||
+				strings.Contains(bodyStr, "Browse") ||
+				strings.Contains(bodyStr, "Subscribe")) {
 			return StreamingStatus{Unlocked: true, Message: "可解锁"}
 		}
-		
+
 		// Check if redirected to a country selector or block page
 		if resp.StatusCode == 302 || resp.StatusCode == 301 {
 			location := resp.Header.Get("Location")
@@ -915,7 +927,7 @@ func (s *WarpService) checkMax(client *http.Client) StreamingStatus {
 			}
 		}
 	}
-	
+
 	return StreamingStatus{Unlocked: false, Message: "未知"}
 }
 
@@ -923,24 +935,24 @@ func (s *WarpService) checkAppleTV(client *http.Client) StreamingStatus {
 	// Check Apple TV+
 	req, _ := http.NewRequest("GET", "https://tv.apple.com/", nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return StreamingStatus{Unlocked: false, Message: "检测失败"}
 	}
 	defer resp.Body.Close()
-	
+
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
-	
+
 	if strings.Contains(bodyStr, "not available") || strings.Contains(bodyStr, "unavailable in your region") {
 		return StreamingStatus{Unlocked: false, Message: "不支持"}
 	}
-	
+
 	if resp.StatusCode == 200 || resp.StatusCode == 302 {
 		return StreamingStatus{Unlocked: true, Message: "可解锁"}
 	}
-	
+
 	return StreamingStatus{Unlocked: false, Message: "未知"}
 }
 
@@ -948,23 +960,23 @@ func (s *WarpService) checkPrimeVideo(client *http.Client) StreamingStatus {
 	// Check Amazon Prime Video
 	req, _ := http.NewRequest("GET", "https://www.primevideo.com/", nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return StreamingStatus{Unlocked: false, Message: "检测失败"}
 	}
 	defer resp.Body.Close()
-	
+
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
-	
+
 	if strings.Contains(bodyStr, "not available") || strings.Contains(bodyStr, "unavailable") {
 		return StreamingStatus{Unlocked: false, Message: "不支持"}
 	}
-	
+
 	if resp.StatusCode == 200 || resp.StatusCode == 302 {
 		return StreamingStatus{Unlocked: true, Message: "可解锁"}
 	}
-	
+
 	return StreamingStatus{Unlocked: false, Message: "未知"}
 }
