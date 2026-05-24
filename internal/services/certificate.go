@@ -239,7 +239,8 @@ func (s *CertificateService) ApplyCertificate(domain, email, provider, method, d
 	camoService := NewCamouflageService()
 	if camoService.IsAvailable() {
 		if camoErr := camoService.DeployCamouflage(domain, certPath, keyPath); camoErr != nil {
-			// Camouflage deployment failure is non-fatal
+			// Camouflage deployment failure is non-fatal, but keep a server-side trace for diagnosis.
+			fmt.Printf("[certificate] camouflage deploy failed for %s: %v\n", domain, camoErr)
 			updateProgress(domain, 6, "证书申请成功（伪装站部署失败: "+camoErr.Error()+"）", "success", "")
 		} else {
 			updateProgress(domain, 6, "证书申请成功，伪装站已部署！", "success", "")

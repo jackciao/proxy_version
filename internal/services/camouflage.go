@@ -470,6 +470,11 @@ func (s *CamouflageService) removeNginxConfig(domain string) {
 }
 
 func (s *CamouflageService) panelBackendURL() string {
+	modeOutput, modeErr := exec.Command("docker", "inspect", "-f", "{{.HostConfig.NetworkMode}}", s.containerName).CombinedOutput()
+	if modeErr == nil && strings.TrimSpace(string(modeOutput)) == "host" {
+		return "http://127.0.0.1:8080"
+	}
+
 	output, err := exec.Command("docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.Gateway}} {{end}}", s.containerName).CombinedOutput()
 	if err == nil {
 		for _, gateway := range strings.Fields(string(output)) {
@@ -651,6 +656,9 @@ func (s *CamouflageService) siteRootHostPaths(domain string) []string {
 }
 
 func (s *CamouflageService) sslHostDir(domain string) string {
+	if s.hostWWWDir != "" {
+		return filepath.Join(s.hostWWWDir, "sites", domain, "ssl")
+	}
 	return filepath.Join(s.hostSSLDir, domain)
 }
 
