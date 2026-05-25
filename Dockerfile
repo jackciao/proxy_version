@@ -42,6 +42,7 @@ RUN mkdir -p /app/data /etc/v2ray-agent/tls /etc/v2ray-agent/nodes /etc/v2ray-ag
 
 COPY --from=builder /app/proxy_version .
 COPY --from=builder /app/web ./web
+COPY --from=builder /app/image.png ./image.png
 
 ENV TZ=Asia/Shanghai
 EXPOSE 8080
