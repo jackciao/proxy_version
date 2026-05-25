@@ -76,6 +76,33 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE TABLE IF NOT EXISTS drive_items (
+		id TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		is_folder INTEGER NOT NULL DEFAULT 0,
+		parent_id TEXT DEFAULT '',
+		mime TEXT DEFAULT '',
+		size INTEGER NOT NULL DEFAULT 0,
+		storage_path TEXT DEFAULT '',
+		starred INTEGER NOT NULL DEFAULT 0,
+		trashed INTEGER NOT NULL DEFAULT 0,
+		deleted_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_drive_items_user_parent ON drive_items(user_id, parent_id, trashed);
+	CREATE INDEX IF NOT EXISTS idx_drive_items_user_trashed ON drive_items(user_id, trashed);
+
+	CREATE TABLE IF NOT EXISTS drive_settings (
+		user_id INTEGER PRIMARY KEY,
+		quota_gb INTEGER NOT NULL DEFAULT 20,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id)
+	);
 	`
 
 	_, err = db.Exec(schema)

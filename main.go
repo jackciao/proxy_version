@@ -32,7 +32,7 @@ func main() {
 
 	// Apply middleware
 	r.Use(middleware.CORS())
-	
+
 	// Server disguise middleware - make responses look like nginx
 	r.Use(func(c *gin.Context) {
 		c.Header("Server", "nginx/1.24.0")
@@ -64,7 +64,7 @@ func main() {
 		{
 			// User management (registration requires auth)
 			protected.POST("/auth/register", handlers.Register(db))
-			
+
 			// Nodes
 			nodes := protected.Group("/nodes")
 			{
@@ -104,6 +104,23 @@ func main() {
 
 			// Camouflage
 			protected.GET("/camouflage/status/:domain", handlers.GetCamouflageStatus())
+
+			// Gotee drive camouflage storage
+			driveHandler := handlers.NewDriveHandler(db, cfg.DataDir)
+			drive := protected.Group("/drive")
+			{
+				drive.GET("/state", driveHandler.State())
+				drive.POST("/folders", driveHandler.CreateFolder())
+				drive.POST("/upload", driveHandler.UploadFiles())
+				drive.PUT("/items/:id", driveHandler.UpdateItem())
+				drive.POST("/items/:id/trash", driveHandler.TrashItem())
+				drive.POST("/items/:id/restore", driveHandler.RestoreItem())
+				drive.DELETE("/items/:id", driveHandler.PurgeItem())
+				drive.DELETE("/trash", driveHandler.ClearTrash())
+				drive.PUT("/quota", driveHandler.UpdateQuota())
+				drive.GET("/files/:id", driveHandler.PreviewFile())
+				drive.GET("/files/:id/download", driveHandler.DownloadFile())
+			}
 
 			// WARP
 			warp := protected.Group("/warp")
