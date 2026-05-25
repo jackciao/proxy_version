@@ -39,8 +39,100 @@ type driveItem struct {
 	DeletedAt string `json:"deleted_at,omitempty"`
 }
 
+type driveRemote struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Token     string `json:"token"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 func NewDriveHandler(db *sql.DB, dataDir string) *DriveHandler {
 	return &DriveHandler{db: db, dataDir: dataDir}
+}
+
+func (h *DriveHandler) APIToken() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetInt64("user_id")
+		token, err := h.ensureAPIToken(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 API Token 失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": token})
+	}
+}
+
+func (h *DriveHandler) ListRemotes() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetInt64("user_id")
+		rows, err := h.db.Query(`SELECT id, name, url, token, COALESCE(created_at, ''), COALESCE(updated_at, '') FROM drive_remotes WHERE user_id = ? ORDER BY name COLLATE NOCASE ASC`, userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "读取分布节点失败"})
+			return
+		}
+		defer rows.Close()
+		remotes := []driveRemote{}
+		for rows.Next() {
+			var r driveRemote
+			if err := rows.Scan(&r.ID, &r.Name, &r.URL, &r.Token, &r.CreatedAt, &r.UpdatedAt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "读取分布节点失败"})
+				return
+			}
+			remotes = append(remotes, r)
+		}
+		c.JSON(http.StatusOK, gin.H{"remotes": remotes})
+	}
+}
+
+func (h *DriveHandler) CreateRemote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetInt64("user_id")
+		var req struct {
+			Name  string `json:"name"`
+			URL   string `json:"url"`
+			Token string `json:"token"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误"})
+			return
+		}
+		name := cleanDriveName(req.Name)
+		if name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "节点名称不能为空"})
+			return
+		}
+		remoteURL, err := normalizeRemoteURL(req.URL)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		token := strings.TrimSpace(req.Token)
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "API Token 不能为空"})
+			return
+		}
+		res, err := h.db.Exec(`INSERT INTO drive_remotes (user_id, name, url, token, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, userID, name, remoteURL, token)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存分布节点失败"})
+			return
+		}
+		id, _ := res.LastInsertId()
+		c.JSON(http.StatusCreated, gin.H{"remote": driveRemote{ID: id, Name: name, URL: remoteURL, Token: token}})
+	}
+}
+
+func (h *DriveHandler) DeleteRemote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetInt64("user_id")
+		id := c.Param("id")
+		if _, err := h.db.Exec(`DELETE FROM drive_remotes WHERE user_id = ? AND id = ?`, userID, id); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "删除分布节点失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "已删除"})
+	}
 }
 
 func (h *DriveHandler) State() gin.HandlerFunc {
@@ -404,6 +496,40 @@ func (h *DriveHandler) serveFile(c *gin.Context, attachment bool) {
 	http.ServeFile(c.Writer, c.Request, storagePath)
 }
 
+func (h *DriveHandler) ensureAPIToken(userID int64) (string, error) {
+	var token string
+	if err := h.db.QueryRow(`SELECT token FROM drive_api_tokens WHERE user_id = ?`, userID).Scan(&token); err == nil && token != "" {
+		return token, nil
+	}
+	newToken, err := newDriveToken()
+	if err != nil {
+		return "", err
+	}
+	_, err = h.db.Exec(`INSERT OR REPLACE INTO drive_api_tokens (user_id, token, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, userID, newToken)
+	if err != nil {
+		return "", err
+	}
+	return newToken, nil
+}
+
+func normalizeRemoteURL(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("节点地址不能为空")
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("节点地址格式无效")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("节点地址必须以 http 或 https 开头")
+	}
+	u.Path = strings.TrimRight(u.Path, "/")
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
 func (h *DriveHandler) ensureQuota(userID int64) int {
 	_, _ = h.db.Exec(`INSERT OR IGNORE INTO drive_settings (user_id, quota_gb) VALUES (?, ?)`, userID, defaultDriveQuotaGB)
 	var quota int
@@ -550,6 +676,14 @@ func cleanDriveName(name string) string {
 		name = string(runes[:180])
 	}
 	return name
+}
+
+func newDriveToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "gdt_" + hex.EncodeToString(b), nil
 }
 
 func newDriveID(prefix string) (string, error) {

@@ -55,12 +55,12 @@ func main() {
 		{
 			auth.POST("/login", handlers.Login(db, cfg.JWTSecret))
 			auth.POST("/setup", handlers.Setup(db))
-			auth.GET("/me", middleware.Auth(cfg.JWTSecret), handlers.GetCurrentUser(db))
+			auth.GET("/me", middleware.Auth(cfg.JWTSecret, db), handlers.GetCurrentUser(db))
 		}
 
 		// Protected routes
 		protected := api.Group("")
-		protected.Use(middleware.Auth(cfg.JWTSecret))
+		protected.Use(middleware.Auth(cfg.JWTSecret, db))
 		{
 			// User management (registration requires auth)
 			protected.POST("/auth/register", handlers.Register(db))
@@ -110,6 +110,10 @@ func main() {
 			drive := protected.Group("/drive")
 			{
 				drive.GET("/state", driveHandler.State())
+				drive.GET("/api-token", driveHandler.APIToken())
+				drive.GET("/remotes", driveHandler.ListRemotes())
+				drive.POST("/remotes", driveHandler.CreateRemote())
+				drive.DELETE("/remotes/:id", driveHandler.DeleteRemote())
 				drive.POST("/folders", driveHandler.CreateFolder())
 				drive.POST("/upload", driveHandler.UploadFiles())
 				drive.PUT("/items/:id", driveHandler.UpdateItem())
