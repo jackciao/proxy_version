@@ -18,7 +18,7 @@ const (
 	aimiliNodesPath     = aimiliInstallDir + "/vpngate_data/nodes.json"
 	aimiliStatePath     = aimiliInstallDir + "/vpngate_data/state.json"
 	aimiliCountriesPath = aimiliInstallDir + "/vpngate_data/proxy_version_available_countries.json"
-	aimiliBundleVersion = "2db62f9b9ec490d4d29a2c047f18e1d6ea8ab29e-proxy-version-1"
+	aimiliBundleVersion = "2db62f9b9ec490d4d29a2c047f18e1d6ea8ab29e-proxy-version-2"
 )
 
 //go:embed aimili_bundle/*

@@ -950,7 +950,7 @@ def test_node_by_id(node_id: str) -> dict[str, Any]:
     
     idx = get_free_test_index()
     try:
-        ok, message, _ = run_openvpn_until_ready(config_file, keep_alive=False, route_nopull=True, timeout=12, dev=f"tun{idx}")
+        ok, message, _ = run_openvpn_until_ready(config_file, keep_alive=False, route_nopull=True, timeout=25, dev=f"tun{idx}")
     finally:
         release_test_index(idx)
         try:
@@ -1034,7 +1034,7 @@ def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
         tun_idx = get_free_test_index()
         dev_name = f"tun{tun_idx}"
         try:
-            ok, message, _ = run_openvpn_until_ready(config_file, keep_alive=False, route_nopull=True, timeout=12, dev=dev_name)
+            ok, message, _ = run_openvpn_until_ready(config_file, keep_alive=False, route_nopull=True, timeout=25, dev=dev_name)
         finally:
             release_test_index(tun_idx)
             try:
@@ -1062,7 +1062,7 @@ def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
         return temp_node
 
     updated_nodes_map = {}
-    max_workers = min(30, max(1, len(to_test)))
+    max_workers = min(8, max(1, len(to_test)))
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(test_worker, (idx, n)): n["id"] for idx, n in enumerate(to_test)}
         for future in concurrent.futures.as_completed(futures):
@@ -1398,7 +1398,30 @@ def maintain_valid_nodes(force: bool = False) -> str:
         set_state(is_connecting=True, last_check_message="正在并发检测所有节点可用性...")
         test_multiple_nodes(to_test_ids)
         is_connecting = False
-        
+
+        # proxy_version zero-result recovery patch: some VPS providers throttle or
+        # exhaust resources during concurrent OpenVPN handshakes. Retry a small
+        # high-score sample sequentially with the normal timeout before declaring
+        # every country unavailable.
+        with lock:
+            first_pass_nodes = read_json(NODES_FILE, [])
+            first_pass_available = [n for n in first_pass_nodes if n.get("probe_status") == "available"]
+            retry_ids = [
+                n["id"] for n in sorted(
+                    [n for n in first_pass_nodes if n.get("probe_status") == "unavailable"],
+                    key=lambda n: (-parse_int(n.get("score")), parse_int(n.get("ping"))),
+                )[:5]
+            ]
+        if not first_pass_available and retry_ids:
+            set_state(last_check_message="并发检测未发现可用节点，正在以兼容模式逐个复检...")
+            for retry_id in retry_ids:
+                try:
+                    result = test_node_by_id(retry_id)
+                    if result.get("probe_status") == "available":
+                        break
+                except Exception as exc:
+                    log_to_json("WARNING", "Main", f"兼容模式复检节点 {retry_id} 失败: {exc}")
+
         with lock:
             merged = read_json(NODES_FILE, [])
             
@@ -1466,8 +1489,35 @@ def maintain_valid_nodes(force: bool = False) -> str:
 
         valid_nodes_count = len([n for n in merged if n.get("probe_status") == "available"])
         message = read_json(STATE_FILE, {}).get("last_check_message", "")
-        if "没有可用" not in message:
-            message = f"Fetched {len(candidates)} nodes. Tested {len(to_test_ids)} nodes."
+        if valid_nodes_count == 0:
+            failure_messages = [
+                str(n.get("probe_message") or "").strip()
+                for n in merged
+                if n.get("probe_status") == "unavailable" and n.get("probe_message")
+            ]
+            common_failure = ""
+            if failure_messages:
+                from collections import Counter
+                grouped_failures = []
+                samples = {}
+                for failure in failure_messages:
+                    code_match = re.search(r"错误代码\s+(\d+)", failure)
+                    key = code_match.group(1) if code_match else failure.split(" (原始日志尾部:", 1)[0]
+                    grouped_failures.append(key)
+                    samples.setdefault(key, failure)
+                common_key, failure_count = Counter(grouped_failures).most_common(1)[0]
+                common_failure = f"最常见失败（{failure_count} 个节点）：{samples[common_key]}"
+            tun_path = Path("/dev/net/tun")
+            if not tun_path.exists():
+                common_failure = "[错误代码 3009] 宿主机不存在 /dev/net/tun，请在 VPS 或容器宿主机启用 TUN 设备。"
+            elif not os.access(tun_path, os.R_OK | os.W_OK):
+                common_failure = "[错误代码 3010] Aimili 服务无权读写 /dev/net/tun，请检查 TUN 权限。"
+            message = "已获取并检测 %d 个节点，但没有节点通过 OpenVPN 连通性测试。%s" % (
+                len(candidates),
+                (" " + common_failure) if common_failure else " 请检查宿主机 /dev/net/tun、OpenVPN 日志和出站防火墙。",
+            )
+        elif "没有可用" not in message:
+            message = f"已获取 {len(candidates)} 个节点，检测 {len(to_test_ids)} 个，当前可用 {valid_nodes_count} 个。"
         set_state(
             last_check_at=time.time(),
             last_check_message=message,
