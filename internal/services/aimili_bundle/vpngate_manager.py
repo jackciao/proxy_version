@@ -100,6 +100,7 @@ STATE_FILE = DATA_DIR / "state.json"
 AUTH_FILE = DATA_DIR / "vpngate_auth.txt"
 
 lock = threading.RLock()
+maintenance_lock = threading.Lock()
 active_sessions: dict[str, float] = {}
 active_openvpn_process: subprocess.Popen[str] | None = None
 active_openvpn_node_id = ""
@@ -953,11 +954,6 @@ def test_node_by_id(node_id: str) -> dict[str, Any]:
         ok, message, _ = run_openvpn_until_ready(config_file, keep_alive=False, route_nopull=True, timeout=25, dev=f"tun{idx}")
     finally:
         release_test_index(idx)
-        try:
-            if temp_path.exists():
-                temp_path.unlink()
-        except Exception:
-            pass
 
     temp_node = {
         "id": node_id,
@@ -1037,11 +1033,6 @@ def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
             ok, message, _ = run_openvpn_until_ready(config_file, keep_alive=False, route_nopull=True, timeout=25, dev=dev_name)
         finally:
             release_test_index(tun_idx)
-            try:
-                if temp_path.exists():
-                    temp_path.unlink()
-            except Exception:
-                pass
             
         temp_node = {
             "id": node_id,
@@ -1291,6 +1282,10 @@ def connect_node(node_id: str) -> str:
             is_connecting = False
 
 def maintain_valid_nodes(force: bool = False) -> str:
+    with maintenance_lock:
+        return maintain_valid_nodes_locked(force)
+
+def maintain_valid_nodes_locked(force: bool = False) -> str:
     global active_openvpn_process, active_openvpn_node_id, is_connecting
     ensure_dirs()
     is_connecting = True

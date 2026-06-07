@@ -538,6 +538,8 @@ def diagnose_openvpn_failure(log_tail: list[str]) -> tuple[int, str]:
     
     if "command not found" in joined_log or "no such file or directory" in joined_log:
         return 2001, "[ERR_OVPN_CMD_NOT_FOUND] 未找到 openvpn 命令。原因: 系统中未安装 OpenVPN 软件，或环境变量 PATH 不正确。"
+    if "error opening configuration file" in joined_log:
+        return 2011, "[ERR_OVPN_CONFIG_ACCESS_DENIED] OpenVPN 无法读取节点配置文件。原因: 文件不存在、权限不足，或 Ubuntu AppArmor 阻止访问 /opt/aimilivpn。"
     
     if "cannot allocate tun" in joined_log or "cannot open tun/tap dev" in joined_log or "cannot ioctl" in joined_log or "cannot allocate tun/tap dev" in joined_log or "dev/net/tun" in joined_log or "operation not permitted" in joined_log:
         return 2009, "[ERR_OVPN_TUN_NOT_AVAILABLE] 无法创建或访问虚拟网卡 (TUN 设备)。原因: ① 缺少 tun 内核模块；② 当前运行在容器(如 LXC/OpenVZ/Docker)中且宿主机未授予网卡创建权限/未启用 CAP_NET_ADMIN 权限；③ `/dev/net/tun` 文件权限不足；④ 未使用 root 用户运行。如果是 Docker，请添加 `--cap-add=NET_ADMIN` 和 `--device=/dev/net/tun` 参数重新运行。"

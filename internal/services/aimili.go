@@ -18,7 +18,7 @@ const (
 	aimiliNodesPath     = aimiliInstallDir + "/vpngate_data/nodes.json"
 	aimiliStatePath     = aimiliInstallDir + "/vpngate_data/state.json"
 	aimiliCountriesPath = aimiliInstallDir + "/vpngate_data/proxy_version_available_countries.json"
-	aimiliBundleVersion = "2db62f9b9ec490d4d29a2c047f18e1d6ea8ab29e-proxy-version-2"
+	aimiliBundleVersion = "2db62f9b9ec490d4d29a2c047f18e1d6ea8ab29e-proxy-version-3"
 )
 
 //go:embed aimili_bundle/*
@@ -210,6 +210,9 @@ func (s *AimiliService) Install() error {
 	if err := s.installHostDependencies(); err != nil {
 		return err
 	}
+	if err := s.configureOpenVPNAppArmor(); err != nil {
+		return err
+	}
 	if err := s.deployBundledSource(); err != nil {
 		return err
 	}
@@ -255,6 +258,31 @@ case "${ID:-}" in
 esac`
 	if output, err := s.runOnHost("bash", "-c", script); err != nil {
 		return fmt.Errorf("安装 Aimili VPN 宿主机依赖失败: %s", strings.TrimSpace(output))
+	}
+	return nil
+}
+
+func (s *AimiliService) configureOpenVPNAppArmor() error {
+	script := `set -e
+profile=""
+local_rule=""
+if [ -f /etc/apparmor.d/openvpn ]; then
+  profile=/etc/apparmor.d/openvpn
+  local_rule=/etc/apparmor.d/local/openvpn
+elif [ -f /etc/apparmor.d/usr.sbin.openvpn ]; then
+  profile=/etc/apparmor.d/usr.sbin.openvpn
+  local_rule=/etc/apparmor.d/local/usr.sbin.openvpn
+fi
+[ -z "$profile" ] && exit 0
+command -v apparmor_parser >/dev/null 2>&1 || exit 0
+mkdir -p /etc/apparmor.d/local
+cat > "$local_rule" <<'EOF'
+# Managed by proxy_version Aimili VPN
+/opt/aimilivpn/** r,
+EOF
+apparmor_parser -r "$profile"`
+	if output, err := s.runOnHost("bash", "-c", script); err != nil {
+		return fmt.Errorf("配置 OpenVPN AppArmor 访问规则失败: %s", strings.TrimSpace(output))
 	}
 	return nil
 }
