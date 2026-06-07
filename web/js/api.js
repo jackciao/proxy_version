@@ -8,8 +8,13 @@ const API = {
         const u = `${this.baseURL}${e}`, t = this.getToken(), h = { 'Content-Type': 'application/json', ...o.headers };
         t && (h.Authorization = `Bearer ${t}`);
         try {
-            const r = await fetch(u, { ...o, headers: h }), d = await r.json();
-            if (!r.ok) { if (r.status === 401) { this.removeToken(); window.location.reload() } throw new Error(d.error || '请求失败') }
+            const r = await fetch(u, { ...o, headers: h });
+            const body = await r.text();
+            let d = {};
+            if (body) {
+                try { d = JSON.parse(body) } catch { d = { error: r.ok ? '服务器返回了无法解析的响应' : `请求失败 (HTTP ${r.status})` } }
+            }
+            if (!r.ok) { if (r.status === 401) { this.removeToken(); window.location.reload() } throw new Error(d.error || `请求失败 (HTTP ${r.status})`) }
             return d
         } catch (e) { console.error('API Error:', e); throw e }
     },
@@ -32,6 +37,7 @@ const API = {
     stopNode(i) { return this.post(`/nodes/${i}/stop`) },
     getNodeShare(i) { return this.get(`/nodes/${i}/share`) },
     toggleNodeWarp(i, enabled) { return this.post(`/nodes/${i}/warp`, { enabled }) },
+    toggleNodeAimili(i, enabled) { return this.post(`/nodes/${i}/aimili`, { enabled }) },
     // System
     getSystemStatus() { return this.get('/system/status') },
     detectReverseProxy() { return this.get('/system/detect') },
@@ -58,6 +64,11 @@ const API = {
     importWarp(config) { return this.post('/warp/import', config) },
     deleteWarp() { return this.delete('/warp') },
     exportWarp() { return this.get('/warp/export') },
-    checkWarpStreaming() { return this.get('/warp/streaming-check') }
+    checkWarpStreaming() { return this.get('/warp/streaming-check') },
+    // Aimili VPN
+    getAimiliStatus() { return this.get('/aimili/status') },
+    installAimili() { return this.post('/aimili/install', {}) },
+    refreshAimiliCountries() { return this.post('/aimili/refresh', {}) },
+    configureAimili(country) { return this.post('/aimili/configure', { country }) }
 };
 window.API = API;

@@ -139,8 +139,18 @@ func main() {
 				warp.GET("/streaming-check", handlers.CheckStreamingUnlock(db))
 			}
 
-			// Node WARP toggle
+			// Aimili VPN
+			aimili := protected.Group("/aimili")
+			{
+				aimili.GET("/status", handlers.GetAimiliStatus())
+				aimili.POST("/install", handlers.InstallAimili())
+				aimili.POST("/refresh", handlers.RefreshAimiliCountries())
+				aimili.POST("/configure", handlers.ConfigureAimili())
+			}
+
+			// Mutually exclusive node outbound toggles
 			protected.POST("/nodes/:id/warp", handlers.ToggleNodeWarp(db))
+			protected.POST("/nodes/:id/aimili", handlers.ToggleNodeAimili(db))
 		}
 	}
 

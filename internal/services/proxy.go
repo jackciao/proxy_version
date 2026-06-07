@@ -550,7 +550,7 @@ func (s *ProxyService) generateShadowsocks2022Config(domain string, port int, co
 	}, nil
 }
 
-func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warpEnabled bool, db interface{}) error {
+func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warpEnabled, aimiliEnabled bool, db interface{}) error {
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return fmt.Errorf("配置解析失败: %v", err)
@@ -565,7 +565,7 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warp
 	}
 
 	// Generate sing-box compatible config
-	singboxConfig, err := s.generateSingBoxConfig(config, warpEnabled, db)
+	singboxConfig, err := s.generateSingBoxConfig(config, warpEnabled, aimiliEnabled, db)
 	if err != nil {
 		return fmt.Errorf("生成配置失败: %v", err)
 	}
@@ -803,7 +803,10 @@ func tlsConfigFromNode(config map[string]interface{}, alpn []string) map[string]
 }
 
 // generateSingBoxConfig generates a sing-box compatible configuration
-func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled bool, db interface{}) (map[string]interface{}, error) {
+func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled, aimiliEnabled bool, db interface{}) (map[string]interface{}, error) {
+	if warpEnabled && aimiliEnabled {
+		return nil, fmt.Errorf("WARP 与 Aimili VPN 不能同时开启")
+	}
 
 	port := configInt(config, "port", 443)
 
@@ -1069,6 +1072,15 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 			},
 		}
 		finalOutbound = "warp-out"
+	}
+	if aimiliEnabled {
+		aimiliService := NewAimiliService()
+		aimiliOutbound, err := aimiliService.GenerateSingBoxOutbound()
+		if err != nil {
+			return nil, fmt.Errorf("生成 Aimili VPN 配置失败: %v", err)
+		}
+		outbounds = append(outbounds, aimiliOutbound)
+		finalOutbound = "aimili-out"
 	}
 
 	singboxConfig["outbounds"] = outbounds

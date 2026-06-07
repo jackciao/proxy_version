@@ -50,7 +50,7 @@ func TestGenerateSingBoxConfigForVLESSRealityVision(t *testing.T) {
 		"privateKey": privateKey,
 		"shortId":    "0123456789abcdef",
 		"serverName": "www.apple.com",
-	}, false, nil)
+	}, false, false, nil)
 	if err != nil {
 		t.Fatalf("generate config: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestGenerateConfigForAnyTLSUsesTLSAndShareablePassword(t *testing.T) {
 		t.Fatalf("anytls password should be base64 encoded: %v", err)
 	}
 
-	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, nil)
+	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, false, nil)
 	if err != nil {
 		t.Fatalf("generate sing-box config: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestTrojanGRPCSingBoxConfigIncludesTLSAndTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate trojan config: %v", err)
 	}
-	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, nil)
+	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, false, nil)
 	if err != nil {
 		t.Fatalf("generate sing-box config: %v", err)
 	}
@@ -221,5 +221,23 @@ func TestPrivateCloudTemplatesUsePanelAuthAndDriveApp(t *testing.T) {
 	}
 	if !strings.Contains(streamVaultDriveHTML, "/auth/me") || !strings.Contains(streamVaultDriveHTML, "上传") || !strings.Contains(streamVaultDriveHTML, "新建") {
 		t.Fatal("drive page should verify auth and include core file actions")
+	}
+}
+
+func TestBuildAimiliOutboundUsesLocalSocksProxy(t *testing.T) {
+	outbound := buildAimiliOutbound("127.0.0.1", 7928)
+	if outbound["type"] != "socks" || outbound["tag"] != "aimili-out" {
+		t.Fatalf("outbound type/tag = %v/%v, want socks/aimili-out", outbound["type"], outbound["tag"])
+	}
+	if outbound["server"] != "127.0.0.1" || outbound["server_port"] != 7928 {
+		t.Fatalf("outbound address = %v:%v, want 127.0.0.1:7928", outbound["server"], outbound["server_port"])
+	}
+}
+
+func TestGenerateSingBoxConfigRejectsWarpAndAimiliTogether(t *testing.T) {
+	service := NewProxyService()
+	_, err := service.generateSingBoxConfig(map[string]interface{}{}, true, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "不能同时开启") {
+		t.Fatalf("error = %v, want mutually exclusive outbound error", err)
 	}
 }

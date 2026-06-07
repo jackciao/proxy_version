@@ -778,6 +778,55 @@ a {
     font-weight: 500;
 }
 
+
+.aimili-install-progress {
+    margin-top: var(--space-md);
+    padding: var(--space-md);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    border-radius: var(--radius-sm);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.aimili-progress-header {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-sm);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.aimili-progress-track {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: rgba(148, 163, 184, 0.22);
+}
+
+.aimili-progress-bar {
+    width: 42%;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent-primary);
+    animation: aimili-installing 1.4s ease-in-out infinite;
+}
+
+.aimili-install-progress p {
+    margin: var(--space-sm) 0 0;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+@keyframes aimili-installing {
+    0% { transform: translateX(-110%); }
+    100% { transform: translateX(350%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .aimili-progress-bar { animation-duration: 3s; }
+}
+
 /* Modal */
 .modal-overlay {
     position: fixed;

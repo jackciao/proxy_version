@@ -41,6 +41,7 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		status TEXT DEFAULT 'stopped',
 		config TEXT,
 		warp_enabled INTEGER DEFAULT 0,
+		aimili_enabled INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id)
@@ -133,12 +134,18 @@ func Initialize(dbPath string) (*sql.DB, error) {
 	migrations := []string{
 		// Add warp_enabled column to nodes table if it doesn't exist
 		"ALTER TABLE nodes ADD COLUMN warp_enabled INTEGER DEFAULT 0",
+		// Add aimili_enabled column to nodes table if it doesn't exist
+		"ALTER TABLE nodes ADD COLUMN aimili_enabled INTEGER DEFAULT 0",
 	}
 
 	for _, m := range migrations {
 		// Ignore errors for migrations (column may already exist)
 		db.Exec(m)
 	}
+
+	// WARP and Aimili VPN are mutually exclusive. Prefer the existing WARP
+	// setting when upgrading a database that somehow contains both flags.
+	_, _ = db.Exec("UPDATE nodes SET aimili_enabled = 0 WHERE warp_enabled = 1 AND aimili_enabled = 1")
 
 	return db, nil
 }

@@ -20,7 +20,7 @@ func ListNodes(db *sql.DB) gin.HandlerFunc {
 		userID := c.GetInt64("user_id")
 
 		rows, err := db.Query(
-			"SELECT id, user_id, name, protocol, domain, port, status, config, COALESCE(warp_enabled, 0), created_at, updated_at FROM nodes WHERE user_id = ? ORDER BY created_at DESC",
+			"SELECT id, user_id, name, protocol, domain, port, status, config, COALESCE(warp_enabled, 0), COALESCE(aimili_enabled, 0), created_at, updated_at FROM nodes WHERE user_id = ? ORDER BY created_at DESC",
 			userID,
 		)
 		if err != nil {
@@ -33,8 +33,8 @@ func ListNodes(db *sql.DB) gin.HandlerFunc {
 		for rows.Next() {
 			var node models.Node
 			var config sql.NullString
-			var warpEnabled int
-			err := rows.Scan(&node.ID, &node.UserID, &node.Name, &node.Protocol, &node.Domain, &node.Port, &node.Status, &config, &warpEnabled, &node.CreatedAt, &node.UpdatedAt)
+			var warpEnabled, aimiliEnabled int
+			err := rows.Scan(&node.ID, &node.UserID, &node.Name, &node.Protocol, &node.Domain, &node.Port, &node.Status, &config, &warpEnabled, &aimiliEnabled, &node.CreatedAt, &node.UpdatedAt)
 			if err != nil {
 				continue
 			}
@@ -46,17 +46,18 @@ func ListNodes(db *sql.DB) gin.HandlerFunc {
 			}
 
 			nodes = append(nodes, gin.H{
-				"id":           node.ID,
-				"user_id":      node.UserID,
-				"name":         node.Name,
-				"protocol":     node.Protocol,
-				"domain":       node.Domain,
-				"port":         node.Port,
-				"status":       node.Status,
-				"config":       configObj,
-				"warp_enabled": warpEnabled,
-				"created_at":   node.CreatedAt,
-				"updated_at":   node.UpdatedAt,
+				"id":             node.ID,
+				"user_id":        node.UserID,
+				"name":           node.Name,
+				"protocol":       node.Protocol,
+				"domain":         node.Domain,
+				"port":           node.Port,
+				"status":         node.Status,
+				"config":         configObj,
+				"warp_enabled":   warpEnabled,
+				"aimili_enabled": aimiliEnabled,
+				"created_at":     node.CreatedAt,
+				"updated_at":     node.UpdatedAt,
 			})
 		}
 
@@ -230,14 +231,14 @@ func StartNode(db *sql.DB) gin.HandlerFunc {
 		userID := c.GetInt64("user_id")
 		nodeID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
-		// Get node config including warp_enabled
+		// Get node config including mutually exclusive outbound settings.
 		var node models.Node
 		var config sql.NullString
-		var warpEnabled int
+		var warpEnabled, aimiliEnabled int
 		err := db.QueryRow(
-			"SELECT id, protocol, domain, port, config, COALESCE(warp_enabled, 0) FROM nodes WHERE id = ? AND user_id = ?",
+			"SELECT id, protocol, domain, port, config, COALESCE(warp_enabled, 0), COALESCE(aimili_enabled, 0) FROM nodes WHERE id = ? AND user_id = ?",
 			nodeID, userID,
-		).Scan(&node.ID, &node.Protocol, &node.Domain, &node.Port, &config, &warpEnabled)
+		).Scan(&node.ID, &node.Protocol, &node.Domain, &node.Port, &config, &warpEnabled, &aimiliEnabled)
 
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
@@ -245,7 +246,7 @@ func StartNode(db *sql.DB) gin.HandlerFunc {
 		}
 
 		proxyService := services.NewProxyService()
-		if err := proxyService.StartNode(nodeID, node.Protocol, config.String, warpEnabled == 1, db); err != nil {
+		if err := proxyService.StartNode(nodeID, node.Protocol, config.String, warpEnabled == 1, aimiliEnabled == 1, db); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

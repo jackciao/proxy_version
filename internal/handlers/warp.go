@@ -154,15 +154,22 @@ func ToggleNodeWarp(db *sql.DB) gin.HandlerFunc {
 		}
 
 		var protocol, status, config string
+		var aimiliEnabled int
 		if err := db.QueryRow(
-			"SELECT protocol, status, config FROM nodes WHERE id = ? AND user_id = ?",
+			"SELECT protocol, status, config, COALESCE(aimili_enabled, 0) FROM nodes WHERE id = ? AND user_id = ?",
 			nodeID, userID,
-		).Scan(&protocol, &status, &config); err != nil {
+		).Scan(&protocol, &status, &config, &aimiliEnabled); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "节点不存在"})
 			return
 		}
 
-		result, err := db.Exec("UPDATE nodes SET warp_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", warpEnabled, nodeID, userID)
+		if req.Enabled {
+			aimiliEnabled = 0
+		}
+		result, err := db.Exec(
+			"UPDATE nodes SET warp_enabled = ?, aimili_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+			warpEnabled, aimiliEnabled, nodeID, userID,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
 			return
@@ -183,7 +190,7 @@ func ToggleNodeWarp(db *sql.DB) gin.HandlerFunc {
 			}
 			proxyService := services.NewProxyService()
 			proxyService.StopNode(id)
-			if err := proxyService.StartNode(id, protocol, config, req.Enabled, db); err != nil {
+			if err := proxyService.StartNode(id, protocol, config, req.Enabled, aimiliEnabled == 1, db); err != nil {
 				db.Exec("UPDATE nodes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", models.NodeStatusError, nodeID, userID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "WARP 设置已更新，但节点重启失败: " + err.Error()})
 				return
@@ -193,9 +200,10 @@ func ToggleNodeWarp(db *sql.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"message":      "WARP 设置已更新",
-			"warp_enabled": req.Enabled,
-			"restarted":    restarted,
+			"message":        "WARP 设置已更新",
+			"warp_enabled":   req.Enabled,
+			"aimili_enabled": aimiliEnabled == 1,
+			"restarted":      restarted,
 		})
 	}
 }

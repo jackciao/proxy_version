@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -113,13 +116,35 @@ func (h *DriveHandler) CreateRemote() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "API Token 不能为空"})
 			return
 		}
-		res, err := h.db.Exec(`INSERT INTO drive_remotes (user_id, name, url, token, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, userID, name, remoteURL, token)
+
+		localURL, err := driveRequestOrigin(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if remoteURL == localURL {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "不能将当前网盘添加为远端网盘"})
+			return
+		}
+
+		remote, err := h.upsertRemote(userID, name, remoteURL, token)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存分布节点失败"})
 			return
 		}
-		id, _ := res.LastInsertId()
-		c.JSON(http.StatusCreated, gin.H{"remote": driveRemote{ID: id, Name: name, URL: remoteURL, Token: token}})
+
+		response := gin.H{"remote": remote, "reciprocal_added": true}
+		if c.GetHeader("X-Drive-Reciprocal") != "1" {
+			localToken, tokenErr := h.ensureAPIToken(userID)
+			if tokenErr != nil {
+				response["reciprocal_added"] = false
+				response["warning"] = "本机 Token 生成失败，未能完成反向添加"
+			} else if reverseErr := registerReciprocalDrive(remoteURL, token, driveRequestName(c), localURL, localToken); reverseErr != nil {
+				response["reciprocal_added"] = false
+				response["warning"] = "远端网盘已保存，但反向添加失败: " + reverseErr.Error()
+			}
+		}
+		c.JSON(http.StatusCreated, response)
 	}
 }
 
@@ -510,6 +535,101 @@ func (h *DriveHandler) ensureAPIToken(userID int64) (string, error) {
 		return "", err
 	}
 	return newToken, nil
+}
+
+func (h *DriveHandler) upsertRemote(userID int64, name, remoteURL, token string) (driveRemote, error) {
+	var id int64
+	err := h.db.QueryRow(`SELECT id FROM drive_remotes WHERE user_id = ? AND url = ? ORDER BY id LIMIT 1`, userID, remoteURL).Scan(&id)
+	if err == sql.ErrNoRows {
+		result, insertErr := h.db.Exec(
+			`INSERT INTO drive_remotes (user_id, name, url, token, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			userID, name, remoteURL, token,
+		)
+		if insertErr != nil {
+			return driveRemote{}, insertErr
+		}
+		id, _ = result.LastInsertId()
+	} else if err != nil {
+		return driveRemote{}, err
+	} else {
+		if _, err := h.db.Exec(
+			`UPDATE drive_remotes SET name = ?, token = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`,
+			name, token, userID, id,
+		); err != nil {
+			return driveRemote{}, err
+		}
+	}
+	return driveRemote{ID: id, Name: name, URL: remoteURL, Token: token}, nil
+}
+
+func registerReciprocalDrive(remoteURL, remoteToken, localName, localURL, localToken string) error {
+	payload, err := json.Marshal(gin.H{"name": localName, "url": localURL, "token": localToken})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest(http.MethodPost, driveRemoteAPIBase(remoteURL)+"/drive/remotes", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+remoteToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Drive-Reciprocal", "1")
+
+	client := &http.Client{Timeout: 12 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		return nil
+	}
+	var result struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result)
+	if result.Error != "" {
+		return fmt.Errorf("%s", result.Error)
+	}
+	return fmt.Errorf("远端返回 HTTP %d", response.StatusCode)
+}
+
+func driveRemoteAPIBase(remoteURL string) string {
+	base := strings.TrimRight(remoteURL, "/")
+	if !strings.HasSuffix(base, "/api") {
+		base += "/api"
+	}
+	return base
+}
+
+func driveRequestOrigin(c *gin.Context) (string, error) {
+	scheme := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Proto"), ",")[0])
+	if scheme == "" {
+		if c.Request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Host"), ",")[0])
+	if host == "" {
+		host = c.Request.Host
+	}
+	return normalizeRemoteURL(scheme + "://" + host)
+}
+
+func driveRequestName(c *gin.Context) string {
+	host := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Host"), ",")[0])
+	if host == "" {
+		host = c.Request.Host
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	if host == "" {
+		return "远端网盘"
+	}
+	return host
 }
 
 func normalizeRemoteURL(value string) (string, error) {

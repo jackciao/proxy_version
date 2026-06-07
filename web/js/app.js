@@ -7,6 +7,8 @@ class App {
         this.protocols = [];
         this.guideStep = 1;
         this.warpEventHandlersInitialized = false;
+        this.aimiliEventHandlersInitialized = false;
+        this.aimiliStatusTimer = null;
         this.init()
     }
 
@@ -358,6 +360,7 @@ class App {
     renderNodeCard(n) {
         const pn = this.protocols.find(p => p.id === n.protocol);
         const warpEnabled = n.warp_enabled === 1 || n.warp_enabled === true;
+        const aimiliEnabled = n.aimili_enabled === 1 || n.aimili_enabled === true;
         return `<div class="node-card" data-node-id="${n.id}">
             <div class="node-header">
                 <span class="node-name">${this.escapeHtml(n.name)}</span>
@@ -371,6 +374,13 @@ class App {
                     <span class="node-info-label">WARP</span>
                     <label class="toggle-switch">
                         <input type="checkbox" ${warpEnabled ? 'checked' : ''} onchange="app.toggleNodeWarp(${n.id}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="node-info-row">
+                    <span class="node-info-label">Aimili VPN</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" ${aimiliEnabled ? 'checked' : ''} onchange="app.toggleNodeAimili(${n.id}, this.checked)">
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
@@ -751,6 +761,8 @@ class App {
             this.loadCoreStatus();
             this.loadWarpStatus();
             this.setupWarpEventHandlers();
+            this.loadAimiliStatus();
+            this.setupAimiliEventHandlers();
         } catch (e) {
             console.error('System info error:', e)
         }
@@ -829,6 +841,131 @@ class App {
             e.preventDefault();
             await this.importWarp();
         });
+    }
+
+    async loadAimiliStatus() {
+        try {
+            const s = await API.getAimiliStatus();
+            const statusEl = document.getElementById('aimili-status');
+            const countrySelect = document.getElementById('aimili-country');
+            const installBtn = document.getElementById('aimili-install-btn');
+            const saveBtn = document.getElementById('aimili-save-btn');
+            const activeRow = document.getElementById('aimili-active-row');
+            const ipRow = document.getElementById('aimili-ip-row');
+            const proxyRow = document.getElementById('aimili-proxy-row');
+            const progress = document.getElementById('aimili-install-progress');
+            const elapsed = document.getElementById('aimili-progress-elapsed');
+            const refreshBtn = document.getElementById('aimili-refresh-btn');
+            const refreshStatus = document.getElementById('aimili-country-refresh-status');
+
+            if (s.installing) statusEl.innerHTML = '<span class="text-warning">正在后台安装...</span>';
+            else if (s.install_error) statusEl.innerHTML = `<span class="text-danger">${this.escapeHtml(s.install_error)}</span>`;
+            else if (s.ready) statusEl.innerHTML = '<span class="text-success">已连接</span>';
+            else if (s.installed) statusEl.textContent = s.error || '正在连接...';
+            else statusEl.innerHTML = '<span class="text-muted">未安装</span>';
+
+            countrySelect.innerHTML = '<option value="">自动选择最佳地区</option>';
+            const availableCountries = s.countries || [];
+            availableCountries.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.name;
+                option.textContent = item.name;
+                countrySelect.appendChild(option);
+            });
+            const selectedCountryAvailable = !s.country || availableCountries.some(item => item.name === s.country);
+            if (s.country && !selectedCountryAvailable) {
+                const unavailableOption = document.createElement('option');
+                unavailableOption.value = s.country;
+                unavailableOption.textContent = `${s.country}（当前不可用）`;
+                unavailableOption.disabled = true;
+                countrySelect.appendChild(unavailableOption);
+            }
+            countrySelect.value = s.country || '';
+            countrySelect.disabled = !s.installed;
+            saveBtn.disabled = !s.installed || !selectedCountryAvailable;
+            installBtn.style.display = s.installed ? 'none' : 'inline-block';
+            installBtn.disabled = !!s.installing;
+            installBtn.textContent = s.installing ? '安装中...' : '安装 Aimili VPN';
+            saveBtn.style.display = s.installed ? 'inline-block' : 'none';
+            refreshBtn.disabled = !s.installed || !!s.refreshing;
+            refreshBtn.textContent = s.refreshing ? '刷新中...' : '刷新地区列表';
+            if (s.refreshing) refreshStatus.textContent = '正在全量检测 VPNGate 节点可用性，完成后只显示可用地区...';
+            else if (s.refresh_error) refreshStatus.textContent = '刷新失败：' + s.refresh_error;
+            else if (s.last_fetch_at) refreshStatus.textContent = `共 ${(s.countries || []).length} 个可用地区，上次检测：${new Date(s.last_fetch_at * 1000).toLocaleString('zh-CN')}`;
+            else refreshStatus.textContent = '';
+            progress.style.display = s.installing ? 'block' : 'none';
+            if (s.installing && s.install_started_at) {
+                const seconds = Math.max(0, Math.floor((Date.now() - new Date(s.install_started_at).getTime()) / 1000));
+                elapsed.textContent = seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+            }
+            clearTimeout(this.aimiliStatusTimer);
+            const waitingForConnection = s.installed && !s.ready && !String(s.error || '').includes('当前没有可用节点');
+            this.aimiliStatusTimer = (s.installing || s.refreshing || waitingForConnection) ? setTimeout(() => this.loadAimiliStatus(), 5000) : null;
+            activeRow.style.display = s.active_country ? 'flex' : 'none';
+            ipRow.style.display = s.active_ip ? 'flex' : 'none';
+            proxyRow.style.display = s.installed ? 'flex' : 'none';
+            document.getElementById('aimili-active-country').textContent = s.active_country || '-';
+            document.getElementById('aimili-active-ip').textContent = s.active_ip || '-';
+            document.getElementById('aimili-proxy').textContent = `${s.proxy_host || '127.0.0.1'}:${s.proxy_port || 7928}`;
+        } catch (e) {
+            const statusEl = document.getElementById('aimili-status');
+            if (statusEl) statusEl.textContent = '检测失败';
+        }
+    }
+
+    setupAimiliEventHandlers() {
+        if (this.aimiliEventHandlersInitialized) return;
+        this.aimiliEventHandlersInitialized = true;
+        document.getElementById('aimili-install-btn')?.addEventListener('click', () => this.installAimili());
+        document.getElementById('aimili-save-btn')?.addEventListener('click', () => this.saveAimiliConfig());
+        document.getElementById('aimili-refresh-btn')?.addEventListener('click', () => this.refreshAimiliCountries());
+        document.getElementById('aimili-country')?.addEventListener('change', (event) => {
+            const saveBtn = document.getElementById('aimili-save-btn');
+            if (saveBtn) saveBtn.disabled = !!event.target.selectedOptions[0]?.disabled;
+        });
+    }
+
+    async refreshAimiliCountries() {
+        const button = document.getElementById('aimili-refresh-btn');
+        button.disabled = true;
+        button.textContent = '刷新中...';
+        try {
+            await API.refreshAimiliCountries();
+            this.showToast('已开始刷新 Aimili 地区列表', 'success');
+            this.loadAimiliStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+            this.loadAimiliStatus();
+        }
+    }
+
+    async installAimili() {
+        if (!confirm('安装 Aimili VPN 将在主机上安装 OpenVPN 等依赖，确定继续？')) return;
+        this.showToast('正在安装 Aimili VPN，请稍候...', 'info');
+        try {
+            await API.installAimili();
+            this.showToast('Aimili VPN 已开始后台安装', 'success');
+            this.loadAimiliStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+        }
+    }
+
+    async saveAimiliConfig() {
+        const countrySelect = document.getElementById('aimili-country');
+        if (countrySelect.selectedOptions[0]?.disabled) {
+            this.showToast('该地区当前不可用，请刷新列表或选择自动选区', 'error');
+            return;
+        }
+        const country = countrySelect.value;
+        this.showToast('正在切换 Aimili VPN 地区...', 'info');
+        try {
+            await API.configureAimili(country);
+            this.showToast(country ? `已切换到 ${country}` : '已启用自动选区', 'success');
+            this.loadAimiliStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+        }
     }
 
     async registerWarp() {
@@ -1079,18 +1216,29 @@ class App {
 
     async toggleNodeWarp(id, enabled) {
         try {
-            await API.toggleNodeWarp(id, enabled);
-            this.showToast(enabled ? 'WARP 已开启' : 'WARP 已关闭', 'success');
-            // Update local node state
-            const node = this.nodes.find(n => n.id === id);
-            if (node) node.warp_enabled = enabled ? 1 : 0;
-            // If node is running, need to restart for WARP to take effect
-            if (node && node.status === 'running') {
-                this.showToast('需要重启节点以应用 WARP 设置', 'info');
-            }
+            const result = await API.toggleNodeWarp(id, enabled);
+            const suffix = enabled && result.aimili_enabled === false ? '，Aimili VPN 已自动关闭' : '';
+            this.showToast((enabled ? 'WARP 已开启' : 'WARP 已关闭') + suffix, 'success');
+            this.loadNodes();
         } catch (e) {
             this.showToast(e.message, 'error');
-            this.loadNodes(); // Reload to reset checkbox state
+            this.loadNodes();
+        }
+    }
+
+    async toggleNodeAimili(id, enabled) {
+        try {
+            if (enabled) {
+                const status = await API.getAimiliStatus();
+                if (!status.ready) throw new Error(status.error || 'Aimili VPN 尚未就绪');
+            }
+            const result = await API.toggleNodeAimili(id, enabled);
+            const suffix = enabled && result.warp_enabled === false ? '，WARP 已自动关闭' : '';
+            this.showToast((enabled ? 'Aimili VPN 已开启' : 'Aimili VPN 已关闭') + suffix, 'success');
+            this.loadNodes();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+            this.loadNodes();
         }
     }
 
