@@ -52,36 +52,51 @@ func GetAimiliStatus() gin.HandlerFunc {
 	}
 }
 
+func startAimiliInstall() bool {
+	aimiliInstallState.Lock()
+	if aimiliInstallState.installing {
+		aimiliInstallState.Unlock()
+		return false
+	}
+	aimiliInstallState.installing = true
+	aimiliInstallState.startedAt = time.Now()
+	aimiliInstallState.err = ""
+	aimiliInstallState.Unlock()
+
+	go func() {
+		err := services.NewAimiliService().Install()
+		aimiliInstallState.Lock()
+		aimiliInstallState.installing = false
+		if err != nil {
+			aimiliInstallState.err = err.Error()
+		}
+		aimiliInstallState.Unlock()
+	}()
+	return true
+}
+
+// BootstrapAimili deploys the image-bundled version on first startup or after an image upgrade.
+func BootstrapAimili() {
+	service := services.NewAimiliService()
+	status := service.GetStatus()
+	if !status.Installed || !service.IsBundleCurrent() {
+		startAimiliInstall()
+	}
+}
+
 func InstallAimili() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		status := services.NewAimiliService().GetStatus()
-		if status.Installed {
-			c.JSON(http.StatusOK, gin.H{"message": "Aimili VPN 已安装", "status": aimiliStatus()})
+		service := services.NewAimiliService()
+		status := service.GetStatus()
+		if status.Installed && service.IsBundleCurrent() {
+			c.JSON(http.StatusOK, gin.H{"message": "Aimili VPN 内置版本已部署", "status": aimiliStatus()})
 			return
 		}
-
-		aimiliInstallState.Lock()
-		if aimiliInstallState.installing {
-			aimiliInstallState.Unlock()
-			c.JSON(http.StatusAccepted, gin.H{"message": "Aimili VPN 正在安装"})
+		if !startAimiliInstall() {
+			c.JSON(http.StatusAccepted, gin.H{"message": "Aimili VPN 正在部署"})
 			return
 		}
-		aimiliInstallState.installing = true
-		aimiliInstallState.startedAt = time.Now()
-		aimiliInstallState.err = ""
-		aimiliInstallState.Unlock()
-
-		go func() {
-			err := services.NewAimiliService().Install()
-			aimiliInstallState.Lock()
-			aimiliInstallState.installing = false
-			if err != nil {
-				aimiliInstallState.err = err.Error()
-			}
-			aimiliInstallState.Unlock()
-		}()
-
-		c.JSON(http.StatusAccepted, gin.H{"message": "Aimili VPN 已开始后台安装"})
+		c.JSON(http.StatusAccepted, gin.H{"message": "已开始部署内置 Aimili VPN"})
 	}
 }
 

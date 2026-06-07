@@ -154,6 +154,9 @@ func main() {
 		}
 	}
 
+	// Deploy the image-bundled Aimili version in the background when needed.
+	handlers.BootstrapAimili()
+
 	// Start server
 	log.Printf("Server starting on port %s", cfg.Port)
 	if err := r.Run(":" + cfg.Port); err != nil {

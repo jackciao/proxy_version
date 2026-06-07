@@ -1,6 +1,9 @@
 package services
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAimiliCountriesFromNodesOnlyIncludesAvailable(t *testing.T) {
 	nodes := []map[string]interface{}{
@@ -31,5 +34,22 @@ func TestAimiliCountriesFromNodesReturnsEmptyWithoutAvailableNodes(t *testing.T)
 
 	if countries := aimiliCountriesFromNodes(nodes); len(countries) != 0 {
 		t.Fatalf("expected no available countries, got %#v", countries)
+	}
+}
+
+func TestAimiliBundleContainsPatchedManager(t *testing.T) {
+	manager, err := aimiliBundle.ReadFile("aimili_bundle/vpngate_manager.py")
+	if err != nil {
+		t.Fatalf("read embedded manager: %v", err)
+	}
+	text := string(manager)
+	for _, marker := range []string{
+		"proxy_version fixed-region compatibility patch",
+		"proxy_version full availability scan patch",
+		"proxy_version missing intermediate certificate patch",
+	} {
+		if !strings.Contains(text, marker) {
+			t.Fatalf("embedded manager is missing %q", marker)
+		}
 	}
 }

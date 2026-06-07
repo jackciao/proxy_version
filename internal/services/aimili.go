@@ -1,6 +1,8 @@
 package services
 
 import (
+	"bytes"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -16,7 +18,11 @@ const (
 	aimiliNodesPath     = aimiliInstallDir + "/vpngate_data/nodes.json"
 	aimiliStatePath     = aimiliInstallDir + "/vpngate_data/state.json"
 	aimiliCountriesPath = aimiliInstallDir + "/vpngate_data/proxy_version_available_countries.json"
+	aimiliBundleVersion = "2db62f9b9ec490d4d29a2c047f18e1d6ea8ab29e-proxy-version-1"
 )
+
+//go:embed aimili_bundle/*
+var aimiliBundle embed.FS
 
 type AimiliCountry struct {
 	Name  string `json:"name"`
@@ -25,6 +31,7 @@ type AimiliCountry struct {
 
 type AimiliStatus struct {
 	Installed        bool            `json:"installed"`
+	BundleCurrent    bool            `json:"bundle_current"`
 	Installing       bool            `json:"installing"`
 	InstallStartedAt string          `json:"install_started_at,omitempty"`
 	InstallError     string          `json:"install_error,omitempty"`
@@ -55,6 +62,11 @@ func NewAimiliService() *AimiliService {
 	return &AimiliService{}
 }
 
+func (s *AimiliService) IsBundleCurrent() bool {
+	output, err := s.runOnHost("cat", aimiliInstallDir+"/.proxy_version_bundle")
+	return err == nil && strings.TrimSpace(output) == aimiliBundleVersion
+}
+
 func (s *AimiliService) runOnHost(command string, args ...string) (string, error) {
 	fullArgs := append([]string{"-t", "1", "-m", "-u", "-i", "-n", command}, args...)
 	output, err := exec.Command("nsenter", fullArgs...).CombinedOutput()
@@ -62,6 +74,26 @@ func (s *AimiliService) runOnHost(command string, args ...string) (string, error
 		return string(output), fmt.Errorf("%s: %s", err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
+}
+
+func (s *AimiliService) runOnHostInput(input []byte, command string, args ...string) (string, error) {
+	fullArgs := append([]string{"-t", "1", "-m", "-u", "-i", "-n", command}, args...)
+	cmd := exec.Command("nsenter", fullArgs...)
+	cmd.Stdin = bytes.NewReader(input)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("%s: %s", err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
+}
+
+func (s *AimiliService) writeHostFile(path string, data []byte, mode string) error {
+	script := fmt.Sprintf(
+		"set -e; mkdir -p $(dirname %s); tmp=%s.tmp.$$; cat > \"$tmp\"; chmod %s \"$tmp\"; mv \"$tmp\" %s",
+		path, path, mode, path,
+	)
+	_, err := s.runOnHostInput(data, "sh", "-c", script)
+	return err
 }
 
 func (s *AimiliService) readHostJSON(path string, target interface{}) error {
@@ -101,6 +133,7 @@ func (s *AimiliService) GetStatus() AimiliStatus {
 		return status
 	}
 	status.Installed = true
+	status.BundleCurrent = s.IsBundleCurrent()
 	if _, err := s.runOnHost("systemctl", "is-active", "--quiet", "aimilivpn.service"); err == nil {
 		status.Running = true
 	}
@@ -172,14 +205,107 @@ func (s *AimiliService) GetStatus() AimiliStatus {
 }
 
 func (s *AimiliService) Install() error {
-	script := `set -e
-curl -fsSL https://raw.githubusercontent.com/baoweise-bot/aimili-vpngate/main/install.sh -o /tmp/aimilivpn-install.sh
-bash /tmp/aimilivpn-install.sh
-rm -f /tmp/aimilivpn-install.sh`
-	if output, err := s.runOnHost("bash", "-c", script); err != nil {
-		return fmt.Errorf("安装 Aimili VPN 失败: %s", strings.TrimSpace(output))
+	config := map[string]interface{}{}
+	hasConfig := s.readHostJSON(aimiliConfigPath, &config) == nil
+	if err := s.installHostDependencies(); err != nil {
+		return err
 	}
-	return s.Configure("")
+	if err := s.deployBundledSource(); err != nil {
+		return err
+	}
+	if !hasConfig {
+		return s.Configure("")
+	}
+	if err := s.ensureCertificateChain(); err != nil {
+		return err
+	}
+	if _, err := s.runOnHost("systemctl", "restart", "aimilivpn.service"); err != nil {
+		return fmt.Errorf("重启 Aimili VPN 失败: %v", err)
+	}
+	return nil
+}
+
+func (s *AimiliService) installHostDependencies() error {
+	script := `set -e
+missing=0
+for command in openvpn python3 ip iptables pkill curl openssl systemctl; do
+  command -v "$command" >/dev/null 2>&1 || missing=1
+done
+[ "$missing" -eq 0 ] && exit 0
+. /etc/os-release
+case "${ID:-}" in
+  ubuntu|debian)
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -q
+    apt-get install -y openvpn curl ca-certificates iptables iproute2 psmisc python3 openssl
+    ;;
+  alpine)
+    apk add --no-cache openvpn curl ca-certificates iptables iproute2 psmisc python3 openssl
+    ;;
+  centos|rhel|rocky|almalinux|fedora|ol|amzn)
+    manager=yum
+    command -v dnf >/dev/null 2>&1 && manager=dnf
+    "$manager" install -y openvpn curl ca-certificates iptables iproute psmisc python3 openssl ||
+      "$manager" install -y openvpn curl ca-certificates iptables iproute2 psmisc python3 openssl
+    ;;
+  *)
+    echo "不支持的宿主机系统: ${ID:-unknown}" >&2
+    exit 1
+    ;;
+esac`
+	if output, err := s.runOnHost("bash", "-c", script); err != nil {
+		return fmt.Errorf("安装 Aimili VPN 宿主机依赖失败: %s", strings.TrimSpace(output))
+	}
+	return nil
+}
+
+func (s *AimiliService) deployBundledSource() error {
+	files := []struct {
+		source string
+		target string
+		mode   string
+	}{
+		{"aimili_bundle/vpngate_manager.py", aimiliInstallDir + "/vpngate_manager.py", "0755"},
+		{"aimili_bundle/proxy_server.py", aimiliInstallDir + "/proxy_server.py", "0644"},
+		{"aimili_bundle/vpn_utils.py", aimiliInstallDir + "/vpn_utils.py", "0644"},
+		{"aimili_bundle/LICENSE", aimiliInstallDir + "/LICENSE", "0644"},
+	}
+	for _, file := range files {
+		data, err := aimiliBundle.ReadFile(file.source)
+		if err != nil {
+			return fmt.Errorf("读取内置 Aimili 文件失败: %v", err)
+		}
+		if err := s.writeHostFile(file.target, data, file.mode); err != nil {
+			return fmt.Errorf("部署内置 Aimili 文件失败: %v", err)
+		}
+	}
+	if err := s.writeHostFile(aimiliInstallDir+"/.proxy_version_bundle", []byte(aimiliBundleVersion+"\n"), "0644"); err != nil {
+		return fmt.Errorf("写入 Aimili 版本标记失败: %v", err)
+	}
+
+	unit := `[Unit]
+Description=AimiliVPN OpenVPN Manager with HTTP/SOCKS5 Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/aimilivpn
+ExecStart=/usr/bin/python3 /opt/aimilivpn/vpngate_manager.py
+Restart=always
+RestartSec=5
+EnvironmentFile=-/etc/default/aimilivpn
+
+[Install]
+WantedBy=multi-user.target
+`
+	if err := s.writeHostFile("/etc/systemd/system/aimilivpn.service", []byte(unit), "0644"); err != nil {
+		return fmt.Errorf("部署 Aimili systemd 服务失败: %v", err)
+	}
+	if output, err := s.runOnHost("bash", "-c", "mkdir -p /opt/aimilivpn/vpngate_data && systemctl daemon-reload && systemctl enable aimilivpn.service"); err != nil {
+		return fmt.Errorf("启用 Aimili VPN 服务失败: %s", strings.TrimSpace(output))
+	}
+	return nil
 }
 
 func (s *AimiliService) ensureCertificateChain() error {
@@ -208,7 +334,7 @@ func (s *AimiliService) RefreshCountries() error {
 	if err := s.ensureCertificateChain(); err != nil {
 		return err
 	}
-	if err := s.applyCompatibilityPatch(); err != nil {
+	if err := s.deployBundledSource(); err != nil {
 		return err
 	}
 	script := `import http.cookiejar
@@ -296,109 +422,6 @@ with open(cache_path, "w", encoding="utf-8") as handle:
 	return nil
 }
 
-func (s *AimiliService) applyCompatibilityPatch() error {
-	script := `from pathlib import Path
-
-path = Path("/opt/aimilivpn/vpngate_manager.py")
-text = path.read_text(encoding="utf-8")
-marker = "# proxy_version fixed-region compatibility patch"
-if marker not in text:
-    old_test = '''            to_test = [n for n in current_nodes if not n.get("active")]
-            to_test_ids = [n["id"] for n in to_test]'''
-    new_test = '''            to_test = [n for n in current_nodes if not n.get("active")]
-            # proxy_version fixed-region compatibility patch
-            routing_cfg = load_ui_config()
-            # proxy_version full availability scan patch
-            full_scan = Path("/opt/aimilivpn/vpngate_data/proxy_version_full_scan").exists()
-            if not full_scan and routing_cfg.get("routing_mode") == "fixed_region" and routing_cfg.get("force_country"):
-                target_country = routing_cfg.get("force_country")
-                to_test = [
-                    n for n in to_test
-                    if n.get("country") == target_country
-                    or vpn_utils.COUNTRY_TRANSLATIONS.get(n.get("country", ""), n.get("country", "")) == target_country
-                ]
-            to_test_ids = [n["id"] for n in to_test]'''
-    old_retry = '''        def bg_fetch_and_switch():
-            try:
-                maintain_valid_nodes(force=False)
-                auto_switch_node()
-            except Exception as e:
-                print(f"[自动切换后台补齐] 获取并测试节点失败: {e}", flush=True)
-
-        threading.Thread(target=bg_fetch_and_switch, daemon=True).start()'''
-    new_retry = '''        # proxy_version: collector_loop and manual refresh own retries.
-        # Avoid recursive refresh threads when a selected region has no live nodes.'''
-    if old_test not in text or old_retry not in text:
-        raise RuntimeError("Aimili 源码版本不匹配，无法应用固定地区兼容补丁")
-    text = text.replace(old_test, new_test, 1).replace(old_retry, new_retry, 1)
-
-status_marker = "# proxy_version no-candidate status patch"
-if status_marker not in text:
-    old_status = '''                        if available_candidates:
-                            auto_switch_node()
-
-        valid_nodes_count = len([n for n in merged if n.get("probe_status") == "available"])
-        message = f"Fetched {len(candidates)} nodes. Tested first 10 nodes."'''
-    new_status = '''                        if available_candidates:
-                            auto_switch_node()
-                        elif routing_mode == "fixed_region" and target_country:
-                            # proxy_version no-candidate status patch
-                            message = f"没有可用的【{target_country}】节点"
-                            set_state(
-                                active_openvpn_node_id="",
-                                is_connecting=False,
-                                last_check_message=message,
-                            )
-
-        valid_nodes_count = len([n for n in merged if n.get("probe_status") == "available"])
-        message = read_json(STATE_FILE, {}).get("last_check_message", "")
-        if "没有可用" not in message:
-            message = f"Fetched {len(candidates)} nodes. Tested {len(to_test_ids)} nodes."'''
-    if old_status not in text:
-        raise RuntimeError("Aimili 源码版本不匹配，无法应用无可用节点状态补丁")
-    text = text.replace(old_status, new_status, 1)
-
-scan_marker = "# proxy_version full availability scan patch"
-if scan_marker not in text:
-    old_filter = '''            if routing_cfg.get("routing_mode") == "fixed_region" and routing_cfg.get("force_country"):
-                target_country = routing_cfg.get("force_country")'''
-    new_filter = '''            # proxy_version full availability scan patch
-            full_scan = Path("/opt/aimilivpn/vpngate_data/proxy_version_full_scan").exists()
-            if not full_scan and routing_cfg.get("routing_mode") == "fixed_region" and routing_cfg.get("force_country"):
-                target_country = routing_cfg.get("force_country")'''
-    if old_filter not in text:
-        raise RuntimeError("Aimili 源码版本不匹配，无法应用全量可用地区检测补丁")
-    text = text.replace(old_filter, new_filter, 1)
-
-
-chain_marker = "# proxy_version missing intermediate certificate patch"
-if chain_marker not in text:
-    old_decode = '''                    config_text = decode_config(encoded)
-                    node = row_to_node(row, config_text)'''
-    new_decode = '''                    config_text = decode_config(encoded)
-                    # proxy_version missing intermediate certificate patch
-                    chain_path = Path("/opt/aimilivpn/vpngate_data/certs/letsencrypt-current-chain.pem")
-                    is_isrg_x1_config = "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiw" in config_text
-                    if is_isrg_x1_config and chain_path.exists() and "proxy_version-letsencrypt-chain" not in config_text:
-                        chain = chain_path.read_text(encoding="utf-8")
-                        config_text = config_text.replace(
-                            "</ca>",
-                            "# proxy_version-letsencrypt-chain\\n" + chain + "\\n</ca>",
-                            1,
-                        )
-                    node = row_to_node(row, config_text)'''
-    if old_decode not in text:
-        raise RuntimeError("Aimili 源码版本不匹配，无法应用证书链兼容补丁")
-    text = text.replace(old_decode, new_decode, 1)
-
-path.write_text(text, encoding="utf-8")
-`
-	if output, err := s.runOnHost("python3", "-c", script); err != nil {
-		return fmt.Errorf("应用 Aimili 固定地区兼容补丁失败: %s", strings.TrimSpace(output))
-	}
-	return nil
-}
-
 func (s *AimiliService) Configure(country string) error {
 	if _, err := s.runOnHost("test", "-f", aimiliInstallDir+"/vpngate_manager.py"); err != nil {
 		return fmt.Errorf("请先安装 Aimili VPN")
@@ -406,7 +429,7 @@ func (s *AimiliService) Configure(country string) error {
 	if err := s.ensureCertificateChain(); err != nil {
 		return err
 	}
-	if err := s.applyCompatibilityPatch(); err != nil {
+	if err := s.deployBundledSource(); err != nil {
 		return err
 	}
 	country = strings.TrimSpace(country)

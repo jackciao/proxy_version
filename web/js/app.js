@@ -883,9 +883,10 @@ class App {
             countrySelect.value = s.country || '';
             countrySelect.disabled = !s.installed;
             saveBtn.disabled = !s.installed || !selectedCountryAvailable;
-            installBtn.style.display = s.installed ? 'none' : 'inline-block';
+            const needsDeploy = !s.installed || !s.bundle_current || !!s.install_error;
+            installBtn.style.display = needsDeploy ? 'inline-block' : 'none';
             installBtn.disabled = !!s.installing;
-            installBtn.textContent = s.installing ? '安装中...' : '安装 Aimili VPN';
+            installBtn.textContent = s.installing ? '部署中...' : (s.installed ? '重新部署 Aimili VPN' : '部署 Aimili VPN');
             saveBtn.style.display = s.installed ? 'inline-block' : 'none';
             refreshBtn.disabled = !s.installed || !!s.refreshing;
             refreshBtn.textContent = s.refreshing ? '刷新中...' : '刷新地区列表';
@@ -940,11 +941,11 @@ class App {
     }
 
     async installAimili() {
-        if (!confirm('安装 Aimili VPN 将在主机上安装 OpenVPN 等依赖，确定继续？')) return;
-        this.showToast('正在安装 Aimili VPN，请稍候...', 'info');
+        if (!confirm('重新部署镜像内置的 Aimili VPN，并补齐宿主机 OpenVPN 依赖，确定继续？')) return;
+        this.showToast('正在部署内置 Aimili VPN，请稍候...', 'info');
         try {
             await API.installAimili();
-            this.showToast('Aimili VPN 已开始后台安装', 'success');
+            this.showToast('Aimili VPN 已开始后台部署', 'success');
             this.loadAimiliStatus();
         } catch (e) {
             this.showToast(e.message, 'error');
