@@ -481,13 +481,14 @@
 
                                 <div id="ps-mode-credentials">
                                     <div class="form-group">
-                                        <label for="ps-username">用户名</label>
-                                        <input type="text" id="ps-username" class="form-input" placeholder="PacketStream 用户名（Network Access 页面）" autocomplete="off">
+                                        <label for="ps-username">用户名（官网 Proxy Username）</label>
+                                        <input type="text" id="ps-username" class="form-input" placeholder="官网 Network Access 页的 Proxy Username，例如 pxps" autocomplete="off">
                                     </div>
                                     <div class="form-group">
-                                        <label for="ps-authkey">认证密钥</label>
-                                        <input type="text" id="ps-authkey" class="form-input" placeholder="基础认证密钥，无需含 _country/_session" autocomplete="off">
+                                        <label for="ps-authkey">认证密钥（官网 Proxy Password）</label>
+                                        <input type="text" id="ps-authkey" class="form-input" placeholder="官网 Network Access 页的 Proxy Password，无需含 _country/_session" autocomplete="off">
                                     </div>
+                                    <div class="text-muted" style="font-size:0.78rem;margin-top:calc(-1 * var(--space-sm))">即官网「Network Access」页 Proxy Password 字段，不是登录密码。</div>
                                 </div>
 
                                 <div id="ps-mode-proxystring" style="display:none">
