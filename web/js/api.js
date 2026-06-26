@@ -38,6 +38,7 @@ const API = {
     getNodeShare(i) { return this.get(`/nodes/${i}/share`) },
     toggleNodeWarp(i, enabled) { return this.post(`/nodes/${i}/warp`, { enabled }) },
     toggleNodeAimili(i, enabled) { return this.post(`/nodes/${i}/aimili`, { enabled }) },
+    toggleNodePacketStream(i, enabled) { return this.post(`/nodes/${i}/packetstream`, { enabled }) },
     // System
     getSystemStatus() { return this.get('/system/status') },
     detectReverseProxy() { return this.get('/system/detect') },
@@ -69,6 +70,11 @@ const API = {
     getAimiliStatus() { return this.get('/aimili/status') },
     installAimili() { return this.post('/aimili/install', {}) },
     refreshAimiliCountries() { return this.post('/aimili/refresh', {}) },
-    configureAimili(country) { return this.post('/aimili/configure', { country }) }
+    configureAimili(country) { return this.post('/aimili/configure', { country }) },
+    // PacketStream
+    getPacketStreamStatus() { return this.get('/packetstream/status') },
+    savePacketStreamConfig(cfg) { return this.post('/packetstream/config', cfg) },
+    deletePacketStreamConfig() { return this.delete('/packetstream/config') },
+    testPacketStream(cfg) { return this.post('/packetstream/test', cfg || {}) }
 };
 window.API = API;

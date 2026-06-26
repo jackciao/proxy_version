@@ -361,6 +361,7 @@ class App {
         const pn = this.protocols.find(p => p.id === n.protocol);
         const warpEnabled = n.warp_enabled === 1 || n.warp_enabled === true;
         const aimiliEnabled = n.aimili_enabled === 1 || n.aimili_enabled === true;
+        const packetstreamEnabled = n.packetstream_enabled === 1 || n.packetstream_enabled === true;
         return `<div class="node-card" data-node-id="${n.id}">
             <div class="node-header">
                 <span class="node-name">${this.escapeHtml(n.name)}</span>
@@ -381,6 +382,13 @@ class App {
                     <span class="node-info-label">Aimili VPN</span>
                     <label class="toggle-switch">
                         <input type="checkbox" ${aimiliEnabled ? 'checked' : ''} onchange="app.toggleNodeAimili(${n.id}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="node-info-row">
+                    <span class="node-info-label">PacketStream</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" ${packetstreamEnabled ? 'checked' : ''} onchange="app.toggleNodePacketStream(${n.id}, this.checked)">
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
@@ -763,8 +771,150 @@ class App {
             this.setupWarpEventHandlers();
             this.loadAimiliStatus();
             this.setupAimiliEventHandlers();
+            this.loadPacketStreamStatus();
+            this.setupPacketStreamEventHandlers();
         } catch (e) {
             console.error('System info error:', e)
+        }
+    }
+
+    async loadPacketStreamStatus() {
+        try {
+            const data = await API.getPacketStreamStatus();
+            const s = data.status || {};
+            const countries = data.countries || [];
+            const statusEl = document.getElementById('packetstream-status');
+            const accountRow = document.getElementById('packetstream-account-row');
+            const accountEl = document.getElementById('packetstream-account');
+            const countrySelect = document.getElementById('ps-country');
+            const sessionSelect = document.getElementById('ps-session-mode');
+            const deleteBtn = document.getElementById('ps-delete-btn');
+            if (!statusEl) return;
+
+            if (s.configured) {
+                statusEl.innerHTML = '<span class="text-success">✓ 已配置</span>';
+                accountRow.style.display = 'flex';
+                accountEl.textContent = `${s.username || '-'}（密钥 ${s.auth_key_mask || '****'}）`;
+                deleteBtn.style.display = 'inline-block';
+            } else {
+                statusEl.innerHTML = '<span class="text-muted">未配置</span>';
+                accountRow.style.display = 'none';
+                deleteBtn.style.display = 'none';
+            }
+
+            if (countrySelect && countrySelect.dataset.filled !== '1') {
+                countrySelect.innerHTML = '';
+                countries.forEach(item => {
+                    const opt = document.createElement('option');
+                    opt.value = item.value;
+                    opt.textContent = item.label;
+                    countrySelect.appendChild(opt);
+                });
+                countrySelect.dataset.filled = '1';
+            }
+            if (countrySelect) countrySelect.value = s.country || '';
+            if (sessionSelect) sessionSelect.value = s.session_mode || 'rotating';
+            if (s.username) {
+                const usernameInput = document.getElementById('ps-username');
+                if (usernameInput && !usernameInput.value) usernameInput.value = s.username;
+            }
+        } catch (e) {
+            console.error('PacketStream status error:', e);
+        }
+    }
+
+    setupPacketStreamEventHandlers() {
+        if (this.packetStreamHandlersInitialized) return;
+        this.packetStreamHandlersInitialized = true;
+        document.getElementById('ps-mode-credentials-btn')?.addEventListener('click', () => this.setPacketStreamMode('credentials'));
+        document.getElementById('ps-mode-proxystring-btn')?.addEventListener('click', () => this.setPacketStreamMode('proxy_string'));
+        document.getElementById('ps-save-btn')?.addEventListener('click', () => this.savePacketStreamConfig());
+        document.getElementById('ps-test-btn')?.addEventListener('click', () => this.testPacketStream());
+        document.getElementById('ps-delete-btn')?.addEventListener('click', () => this.deletePacketStreamConfig());
+        this.setPacketStreamMode('credentials');
+    }
+
+    setPacketStreamMode(mode) {
+        this.packetStreamMode = mode;
+        const credBox = document.getElementById('ps-mode-credentials');
+        const strBox = document.getElementById('ps-mode-proxystring');
+        const credBtn = document.getElementById('ps-mode-credentials-btn');
+        const strBtn = document.getElementById('ps-mode-proxystring-btn');
+        const isCred = mode === 'credentials';
+        if (credBox) credBox.style.display = isCred ? 'block' : 'none';
+        if (strBox) strBox.style.display = isCred ? 'none' : 'block';
+        if (credBtn) credBtn.classList.toggle('btn-primary', isCred);
+        if (strBtn) strBtn.classList.toggle('btn-primary', !isCred);
+    }
+
+    collectPacketStreamForm() {
+        const mode = this.packetStreamMode || 'credentials';
+        const payload = {
+            mode,
+            country: document.getElementById('ps-country')?.value || '',
+            session_mode: document.getElementById('ps-session-mode')?.value || 'rotating'
+        };
+        if (mode === 'proxy_string') {
+            payload.proxy_string = document.getElementById('ps-proxystring')?.value || '';
+        } else {
+            payload.username = document.getElementById('ps-username')?.value || '';
+            payload.auth_key = document.getElementById('ps-authkey')?.value || '';
+        }
+        return payload;
+    }
+
+    async savePacketStreamConfig() {
+        const payload = this.collectPacketStreamForm();
+        this.showToast('正在保存 PacketStream 配置...', 'info');
+        try {
+            await API.savePacketStreamConfig(payload);
+            this.showToast('PacketStream 配置已保存', 'success');
+            const authInput = document.getElementById('ps-authkey');
+            const strInput = document.getElementById('ps-proxystring');
+            if (authInput) authInput.value = '';
+            if (strInput) strInput.value = '';
+            this.loadPacketStreamStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+        }
+    }
+
+    async testPacketStream() {
+        const btn = document.getElementById('ps-test-btn');
+        const resultRow = document.getElementById('ps-test-result-row');
+        const resultEl = document.getElementById('ps-test-result');
+        if (btn) { btn.disabled = true; btn.textContent = '测试中...'; }
+        if (resultRow) resultRow.style.display = 'flex';
+        if (resultEl) resultEl.innerHTML = '<span class="text-muted">正在通过代理检测出口 IP...</span>';
+        try {
+            const payload = this.collectPacketStreamForm();
+            const hasInput = payload.proxy_string || payload.username || payload.auth_key;
+            const res = await API.testPacketStream(hasInput ? payload : {});
+            if (res.success) {
+                const parts = [res.ip];
+                if (res.country) parts.push(res.country);
+                if (res.isp) parts.push(res.isp);
+                if (resultEl) resultEl.innerHTML = `<span class="text-success">✓ ${this.escapeHtml(parts.filter(Boolean).join(' · '))}</span>`;
+            } else {
+                if (resultEl) resultEl.innerHTML = `<span class="text-danger">${this.escapeHtml(res.message || '连接失败')}</span>`;
+            }
+        } catch (e) {
+            if (resultEl) resultEl.innerHTML = `<span class="text-danger">${this.escapeHtml(e.message)}</span>`;
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '测试连接'; }
+        }
+    }
+
+    async deletePacketStreamConfig() {
+        if (!confirm('确定删除 PacketStream 配置？已开启该出口的节点将无法继续使用。')) return;
+        try {
+            await API.deletePacketStreamConfig();
+            this.showToast('PacketStream 配置已删除', 'success');
+            const usernameInput = document.getElementById('ps-username');
+            if (usernameInput) usernameInput.value = '';
+            this.loadPacketStreamStatus();
+        } catch (e) {
+            this.showToast(e.message, 'error');
         }
     }
 
@@ -1215,10 +1365,16 @@ class App {
         }
     }
 
+    mutualExclusiveSuffix(result, keys) {
+        const labels = { warp_enabled: 'WARP', aimili_enabled: 'Aimili VPN', packetstream_enabled: 'PacketStream' };
+        const turnedOff = keys.filter(k => result[k] === false).map(k => labels[k]);
+        return turnedOff.length ? '，' + turnedOff.join('、') + ' 已自动关闭' : '';
+    }
+
     async toggleNodeWarp(id, enabled) {
         try {
             const result = await API.toggleNodeWarp(id, enabled);
-            const suffix = enabled && result.aimili_enabled === false ? '，Aimili VPN 已自动关闭' : '';
+            const suffix = enabled ? this.mutualExclusiveSuffix(result, ['aimili_enabled', 'packetstream_enabled']) : '';
             this.showToast((enabled ? 'WARP 已开启' : 'WARP 已关闭') + suffix, 'success');
             this.loadNodes();
         } catch (e) {
@@ -1234,8 +1390,20 @@ class App {
                 if (!status.ready) throw new Error(status.error || 'Aimili VPN 尚未就绪');
             }
             const result = await API.toggleNodeAimili(id, enabled);
-            const suffix = enabled && result.warp_enabled === false ? '，WARP 已自动关闭' : '';
+            const suffix = enabled ? this.mutualExclusiveSuffix(result, ['warp_enabled', 'packetstream_enabled']) : '';
             this.showToast((enabled ? 'Aimili VPN 已开启' : 'Aimili VPN 已关闭') + suffix, 'success');
+            this.loadNodes();
+        } catch (e) {
+            this.showToast(e.message, 'error');
+            this.loadNodes();
+        }
+    }
+
+    async toggleNodePacketStream(id, enabled) {
+        try {
+            const result = await API.toggleNodePacketStream(id, enabled);
+            const suffix = enabled ? this.mutualExclusiveSuffix(result, ['warp_enabled', 'aimili_enabled']) : '';
+            this.showToast((enabled ? 'PacketStream 已开启' : 'PacketStream 已关闭') + suffix, 'success');
             this.loadNodes();
         } catch (e) {
             this.showToast(e.message, 'error');

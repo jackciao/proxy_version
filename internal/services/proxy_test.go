@@ -50,7 +50,7 @@ func TestGenerateSingBoxConfigForVLESSRealityVision(t *testing.T) {
 		"privateKey": privateKey,
 		"shortId":    "0123456789abcdef",
 		"serverName": "www.apple.com",
-	}, false, false, nil)
+	}, false, false, false, nil)
 	if err != nil {
 		t.Fatalf("generate config: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestGenerateConfigForAnyTLSUsesTLSAndShareablePassword(t *testing.T) {
 		t.Fatalf("anytls password should be base64 encoded: %v", err)
 	}
 
-	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, false, nil)
+	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, false, false, nil)
 	if err != nil {
 		t.Fatalf("generate sing-box config: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestTrojanGRPCSingBoxConfigIncludesTLSAndTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate trojan config: %v", err)
 	}
-	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, false, nil)
+	singboxConfig, err := service.generateSingBoxConfig(nodeConfig, false, false, false, nil)
 	if err != nil {
 		t.Fatalf("generate sing-box config: %v", err)
 	}
@@ -236,8 +236,16 @@ func TestBuildAimiliOutboundUsesLocalSocksProxy(t *testing.T) {
 
 func TestGenerateSingBoxConfigRejectsWarpAndAimiliTogether(t *testing.T) {
 	service := NewProxyService()
-	_, err := service.generateSingBoxConfig(map[string]interface{}{}, true, true, nil)
-	if err == nil || !strings.Contains(err.Error(), "不能同时开启") {
+	_, err := service.generateSingBoxConfig(map[string]interface{}{}, true, true, false, nil)
+	if err == nil || !strings.Contains(err.Error(), "只能开启一个") {
+		t.Fatalf("error = %v, want mutually exclusive outbound error", err)
+	}
+}
+
+func TestGenerateSingBoxConfigRejectsThreeOutboundsTogether(t *testing.T) {
+	service := NewProxyService()
+	_, err := service.generateSingBoxConfig(map[string]interface{}{}, true, false, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "只能开启一个") {
 		t.Fatalf("error = %v, want mutually exclusive outbound error", err)
 	}
 }

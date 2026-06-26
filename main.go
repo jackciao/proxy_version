@@ -148,9 +148,19 @@ func main() {
 				aimili.POST("/configure", handlers.ConfigureAimili())
 			}
 
+			// PacketStream 全球住宅代理
+			packetstream := protected.Group("/packetstream")
+			{
+				packetstream.GET("/status", handlers.GetPacketStreamStatus(db))
+				packetstream.POST("/config", handlers.SavePacketStreamConfig(db))
+				packetstream.DELETE("/config", handlers.DeletePacketStreamConfig(db))
+				packetstream.POST("/test", handlers.TestPacketStream(db))
+			}
+
 			// Mutually exclusive node outbound toggles
 			protected.POST("/nodes/:id/warp", handlers.ToggleNodeWarp(db))
 			protected.POST("/nodes/:id/aimili", handlers.ToggleNodeAimili(db))
+			protected.POST("/nodes/:id/packetstream", handlers.TogglePacketStream(db))
 		}
 	}
 

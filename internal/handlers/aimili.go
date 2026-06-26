@@ -181,11 +181,11 @@ func ToggleNodeAimili(db *sql.DB) gin.HandlerFunc {
 		defer tx.Rollback()
 
 		var protocol, status, config string
-		var warpEnabled int
+		var warpEnabled, packetstreamEnabled int
 		if err := tx.QueryRow(
-			"SELECT protocol, status, config, COALESCE(warp_enabled, 0) FROM nodes WHERE id = ? AND user_id = ?",
+			"SELECT protocol, status, config, COALESCE(warp_enabled, 0), COALESCE(packetstream_enabled, 0) FROM nodes WHERE id = ? AND user_id = ?",
 			nodeID, userID,
-		).Scan(&protocol, &status, &config, &warpEnabled); err != nil {
+		).Scan(&protocol, &status, &config, &warpEnabled, &packetstreamEnabled); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "节点不存在"})
 			return
 		}
@@ -194,10 +194,11 @@ func ToggleNodeAimili(db *sql.DB) gin.HandlerFunc {
 		if req.Enabled {
 			aimiliEnabled = 1
 			warpEnabled = 0
+			packetstreamEnabled = 0
 		}
 		if _, err := tx.Exec(
-			"UPDATE nodes SET aimili_enabled = ?, warp_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
-			aimiliEnabled, warpEnabled, nodeID, userID,
+			"UPDATE nodes SET aimili_enabled = ?, warp_enabled = ?, packetstream_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+			aimiliEnabled, warpEnabled, packetstreamEnabled, nodeID, userID,
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
 			return
@@ -216,7 +217,7 @@ func ToggleNodeAimili(db *sql.DB) gin.HandlerFunc {
 			}
 			proxyService := services.NewProxyService()
 			_ = proxyService.StopNode(id)
-			if err := proxyService.StartNode(id, protocol, config, warpEnabled == 1, req.Enabled, db); err != nil {
+			if err := proxyService.StartNode(id, protocol, config, warpEnabled == 1, req.Enabled, packetstreamEnabled == 1, db); err != nil {
 				_, _ = db.Exec("UPDATE nodes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", models.NodeStatusError, nodeID, userID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Aimili VPN 设置已更新，但节点重启失败: " + err.Error()})
 				return
@@ -226,10 +227,11 @@ func ToggleNodeAimili(db *sql.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"message":        "Aimili VPN 设置已更新",
-			"aimili_enabled": req.Enabled,
-			"warp_enabled":   warpEnabled == 1,
-			"restarted":      restarted,
+			"message":              "Aimili VPN 设置已更新",
+			"aimili_enabled":       req.Enabled,
+			"warp_enabled":         warpEnabled == 1,
+			"packetstream_enabled": packetstreamEnabled == 1,
+			"restarted":            restarted,
 		})
 	}
 }

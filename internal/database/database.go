@@ -42,6 +42,7 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		config TEXT,
 		warp_enabled INTEGER DEFAULT 0,
 		aimili_enabled INTEGER DEFAULT 0,
+		packetstream_enabled INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id)
@@ -123,6 +124,19 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id)
 	);
+
+	CREATE TABLE IF NOT EXISTS packetstream_config (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		host TEXT,
+		port INTEGER,
+		username TEXT,
+		auth_key TEXT,
+		country TEXT,
+		session_mode TEXT DEFAULT 'rotating',
+		session_id TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	_, err = db.Exec(schema)
@@ -138,6 +152,8 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		"ALTER TABLE nodes ADD COLUMN aimili_enabled INTEGER DEFAULT 0",
 		// Add public_ipv4 column to warp_config to store the measured WARP egress IPv4
 		"ALTER TABLE warp_config ADD COLUMN public_ipv4 TEXT",
+		// Add packetstream_enabled column to nodes table if it doesn't exist
+		"ALTER TABLE nodes ADD COLUMN packetstream_enabled INTEGER DEFAULT 0",
 	}
 
 	for _, m := range migrations {
@@ -145,9 +161,11 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		db.Exec(m)
 	}
 
-	// WARP and Aimili VPN are mutually exclusive. Prefer the existing WARP
-	// setting when upgrading a database that somehow contains both flags.
+	// WARP / Aimili VPN / PacketStream are mutually exclusive on a per-node
+	// basis. When upgrading a database that somehow contains conflicting flags,
+	// keep priority order WARP > Aimili > PacketStream.
 	_, _ = db.Exec("UPDATE nodes SET aimili_enabled = 0 WHERE warp_enabled = 1 AND aimili_enabled = 1")
+	_, _ = db.Exec("UPDATE nodes SET packetstream_enabled = 0 WHERE (warp_enabled = 1 OR aimili_enabled = 1) AND packetstream_enabled = 1")
 
 	return db, nil
 }

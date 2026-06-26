@@ -458,6 +458,76 @@
                                 </p>
                             </div>
                         </div>
+
+                        <div class="card glass">
+                            <div class="card-header">
+                                <h3>PacketStream 全球代理</h3>
+                                <a class="btn btn-sm" href="https://packetstream.io/" target="_blank" rel="noopener">官网注册</a>
+                            </div>
+                            <div class="card-body" id="packetstream-settings">
+                                <div class="info-row">
+                                    <span class="info-label">状态</span>
+                                    <span class="info-value" id="packetstream-status">检测中...</span>
+                                </div>
+                                <div class="info-row" id="packetstream-account-row" style="display:none">
+                                    <span class="info-label">当前账号</span>
+                                    <span class="info-value" id="packetstream-account">-</span>
+                                </div>
+
+                                <div class="ps-mode-tabs" style="display:flex;gap:var(--space-sm);margin:var(--space-md) 0">
+                                    <button type="button" class="btn btn-sm btn-primary" id="ps-mode-credentials-btn" data-mode="credentials">凭据模式</button>
+                                    <button type="button" class="btn btn-sm" id="ps-mode-proxystring-btn" data-mode="proxy_string">代理串解析</button>
+                                </div>
+
+                                <div id="ps-mode-credentials">
+                                    <div class="form-group">
+                                        <label for="ps-username">用户名</label>
+                                        <input type="text" id="ps-username" class="form-input" placeholder="PacketStream 用户名（Network Access 页面）" autocomplete="off">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="ps-authkey">认证密钥</label>
+                                        <input type="text" id="ps-authkey" class="form-input" placeholder="基础认证密钥，无需含 _country/_session" autocomplete="off">
+                                    </div>
+                                </div>
+
+                                <div id="ps-mode-proxystring" style="display:none">
+                                    <div class="form-group">
+                                        <label for="ps-proxystring">完整代理串 / CURL</label>
+                                        <textarea id="ps-proxystring" class="form-input" rows="3" placeholder="从官网复制，如：&#10;http://用户名:密钥@proxy.packetstream.io:31112&#10;或 proxy.packetstream.io:31112:用户名:密钥"></textarea>
+                                        <div class="text-muted" style="font-size:0.78rem;margin-top:var(--space-sm)">支持 http(s)://、socks5://、host:port:user:pass 及 curl -x 形式，会自动拆分国家/会话。</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="ps-country">解锁国家或地区</label>
+                                    <select id="ps-country" class="form-input">
+                                        <option value="">全球随机</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="ps-session-mode">会话模式</label>
+                                    <select id="ps-session-mode" class="form-input">
+                                        <option value="rotating">轮换 IP（每次请求换出口）</option>
+                                        <option value="sticky">固定会话（保持同一出口 IP）</option>
+                                    </select>
+                                </div>
+
+                                <div class="info-row" id="ps-test-result-row" style="display:none">
+                                    <span class="info-label">测试出口</span>
+                                    <span class="info-value" id="ps-test-result">-</span>
+                                </div>
+
+                                <div class="btn-group" style="margin-top:var(--space-md)">
+                                    <button class="btn btn-sm" id="ps-test-btn">测试连接</button>
+                                    <button class="btn btn-primary btn-sm" id="ps-save-btn">保存配置</button>
+                                    <button class="btn btn-sm btn-danger" id="ps-delete-btn" style="display:none">删除配置</button>
+                                </div>
+
+                                <p class="text-muted" style="font-size:0.8rem;margin-top:var(--space-md)">
+                                    PacketStream 为付费住宅代理，需<a href="https://packetstream.io/" target="_blank" rel="noopener">自行注册并充值</a>。保存后可在节点卡片中开启，与 WARP/Aimili 按节点互斥。
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </main>

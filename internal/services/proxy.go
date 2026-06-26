@@ -550,7 +550,7 @@ func (s *ProxyService) generateShadowsocks2022Config(domain string, port int, co
 	}, nil
 }
 
-func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warpEnabled, aimiliEnabled bool, db interface{}) error {
+func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warpEnabled, aimiliEnabled, packetstreamEnabled bool, db interface{}) error {
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return fmt.Errorf("配置解析失败: %v", err)
@@ -565,7 +565,7 @@ func (s *ProxyService) StartNode(nodeID int64, protocol, configJSON string, warp
 	}
 
 	// Generate sing-box compatible config
-	singboxConfig, err := s.generateSingBoxConfig(config, warpEnabled, aimiliEnabled, db)
+	singboxConfig, err := s.generateSingBoxConfig(config, warpEnabled, aimiliEnabled, packetstreamEnabled, db)
 	if err != nil {
 		return fmt.Errorf("生成配置失败: %v", err)
 	}
@@ -803,9 +803,19 @@ func tlsConfigFromNode(config map[string]interface{}, alpn []string) map[string]
 }
 
 // generateSingBoxConfig generates a sing-box compatible configuration
-func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled, aimiliEnabled bool, db interface{}) (map[string]interface{}, error) {
-	if warpEnabled && aimiliEnabled {
-		return nil, fmt.Errorf("WARP 与 Aimili VPN 不能同时开启")
+func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warpEnabled, aimiliEnabled, packetstreamEnabled bool, db interface{}) (map[string]interface{}, error) {
+	enabledCount := 0
+	if warpEnabled {
+		enabledCount++
+	}
+	if aimiliEnabled {
+		enabledCount++
+	}
+	if packetstreamEnabled {
+		enabledCount++
+	}
+	if enabledCount > 1 {
+		return nil, fmt.Errorf("WARP、Aimili VPN 与 PacketStream 同一节点只能开启一个")
 	}
 
 	port := configInt(config, "port", 443)
@@ -1081,6 +1091,19 @@ func (s *ProxyService) generateSingBoxConfig(config map[string]interface{}, warp
 		}
 		outbounds = append(outbounds, aimiliOutbound)
 		finalOutbound = "aimili-out"
+	}
+	if packetstreamEnabled {
+		sqlDB, ok := db.(*sql.DB)
+		if !ok || sqlDB == nil {
+			return nil, fmt.Errorf("PacketStream 已开启但数据库连接不可用")
+		}
+		psService := NewPacketStreamService(sqlDB)
+		psOutbound, err := psService.GenerateSingBoxOutbound()
+		if err != nil {
+			return nil, fmt.Errorf("生成 PacketStream 配置失败: %v", err)
+		}
+		outbounds = append(outbounds, psOutbound)
+		finalOutbound = "packetstream-out"
 	}
 
 	singboxConfig["outbounds"] = outbounds
