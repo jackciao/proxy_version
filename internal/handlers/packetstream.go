@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"proxy_version/internal/models"
 	"proxy_version/internal/services"
@@ -13,7 +12,7 @@ import (
 )
 
 // packetStreamConfigRequest 同时支持两种录入模式：
-//   - mode=credentials：用户名 + 认证密钥 + 国家/会话选择
+//   - mode=credentials：用户名 + 认证密钥（官网 Proxy Password，已含国家/会话）
 //   - mode=proxy_string：直接粘贴官网完整代理串，由后端解析
 type packetStreamConfigRequest struct {
 	Mode        string `json:"mode"`
@@ -22,37 +21,17 @@ type packetStreamConfigRequest struct {
 	Port        int    `json:"port"`
 	Username    string `json:"username"`
 	AuthKey     string `json:"auth_key"`
-	Country     string `json:"country"`
-	SessionMode string `json:"session_mode"`
-	SessionID   string `json:"session_id"`
 }
 
 func (r packetStreamConfigRequest) toConfig() (*services.PacketStreamConfig, error) {
 	if r.Mode == "proxy_string" || (r.ProxyString != "" && r.Username == "") {
-		cfg, err := services.ParsePacketStreamProxyString(r.ProxyString)
-		if err != nil {
-			return nil, err
-		}
-		// 允许在解析后再叠加用户在界面上选择的国家 / 会话模式
-		if c := strings.TrimSpace(r.Country); c != "" {
-			cfg.Country = c
-		}
-		if r.SessionMode == "sticky" || r.SessionMode == "rotating" {
-			cfg.SessionMode = r.SessionMode
-			if r.SessionMode == "sticky" && strings.TrimSpace(r.SessionID) != "" {
-				cfg.SessionID = strings.TrimSpace(r.SessionID)
-			}
-		}
-		return cfg, nil
+		return services.ParsePacketStreamProxyString(r.ProxyString)
 	}
 	return &services.PacketStreamConfig{
-		Host:        r.Host,
-		Port:        r.Port,
-		Username:    r.Username,
-		AuthKey:     r.AuthKey,
-		Country:     r.Country,
-		SessionMode: r.SessionMode,
-		SessionID:   r.SessionID,
+		Host:     r.Host,
+		Port:     r.Port,
+		Username: r.Username,
+		AuthKey:  r.AuthKey,
 	}, nil
 }
 
@@ -61,8 +40,7 @@ func GetPacketStreamStatus(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		service := services.NewPacketStreamService(db)
 		c.JSON(http.StatusOK, gin.H{
-			"status":    service.GetStatus(),
-			"countries": services.PacketStreamCountries(),
+			"status": service.GetStatus(),
 		})
 	}
 }

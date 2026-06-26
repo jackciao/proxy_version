@@ -488,29 +488,15 @@
                                         <label for="ps-authkey">认证密钥（官网 Proxy Password）</label>
                                         <input type="text" id="ps-authkey" class="form-input" placeholder="官网 Network Access 页的 Proxy Password，无需含 _country/_session" autocomplete="off">
                                     </div>
-                                    <div class="text-muted" style="font-size:0.78rem;margin-top:calc(-1 * var(--space-sm))">即官网「Network Access」页 Proxy Password 字段，不是登录密码。</div>
+                                    <div class="text-muted" style="font-size:0.78rem;margin-top:calc(-1 * var(--space-sm))">即官网「Network Access」页 Proxy Password 字段（已包含你在官网选择的国家/会话），不是登录密码。</div>
                                 </div>
 
                                 <div id="ps-mode-proxystring" style="display:none">
                                     <div class="form-group">
                                         <label for="ps-proxystring">完整代理串 / CURL</label>
-                                        <textarea id="ps-proxystring" class="form-input" rows="3" placeholder="从官网复制，如：&#10;http://用户名:密钥@proxy.packetstream.io:31112&#10;或 proxy.packetstream.io:31112:用户名:密钥"></textarea>
-                                        <div class="text-muted" style="font-size:0.78rem;margin-top:var(--space-sm)">支持 http(s)://、socks5://、host:port:user:pass 及 curl -x 形式，会自动拆分国家/会话。</div>
+                                        <textarea id="ps-proxystring" class="form-input" rows="3" placeholder="从官网复制，如：&#10;http://用户名:密钥_country-Turkey@proxy.packetstream.io:31112&#10;或 proxy.packetstream.io:31112:用户名:密钥_country-Turkey"></textarea>
+                                        <div class="text-muted" style="font-size:0.78rem;margin-top:var(--space-sm)">支持 http(s)://、socks5://、host:port:user:pass 及 curl -x 形式，密码原样保存。</div>
                                     </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="ps-country">解锁国家或地区</label>
-                                    <select id="ps-country" class="form-input">
-                                        <option value="">全球随机</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="ps-session-mode">会话模式</label>
-                                    <select id="ps-session-mode" class="form-input">
-                                        <option value="rotating">轮换 IP（每次请求换出口）</option>
-                                        <option value="sticky">固定会话（保持同一出口 IP）</option>
-                                    </select>
                                 </div>
 
                                 <div class="info-row" id="ps-test-result-row" style="display:none">
@@ -525,7 +511,7 @@
                                 </div>
 
                                 <p class="text-muted" style="font-size:0.8rem;margin-top:var(--space-md)">
-                                    PacketStream 为付费住宅代理，需<a href="https://packetstream.io/" target="_blank" rel="noopener">自行注册并充值</a>。保存后可在节点卡片中开启，与 WARP/Aimili 按节点互斥。
+                                    PacketStream 为付费住宅代理，需<a href="https://packetstream.io/" target="_blank" rel="noopener">自行注册并充值</a>。解锁国家与会话模式请在官网「Network Access」页选择，会体现在 Proxy Password 中；这里原样填入即可。保存后可在节点卡片中开启，与 WARP/Aimili 按节点互斥。
                                 </p>
                             </div>
                         </div>

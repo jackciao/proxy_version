@@ -782,12 +782,9 @@ class App {
         try {
             const data = await API.getPacketStreamStatus();
             const s = data.status || {};
-            const countries = data.countries || [];
             const statusEl = document.getElementById('packetstream-status');
             const accountRow = document.getElementById('packetstream-account-row');
             const accountEl = document.getElementById('packetstream-account');
-            const countrySelect = document.getElementById('ps-country');
-            const sessionSelect = document.getElementById('ps-session-mode');
             const deleteBtn = document.getElementById('ps-delete-btn');
             if (!statusEl) return;
 
@@ -802,18 +799,6 @@ class App {
                 deleteBtn.style.display = 'none';
             }
 
-            if (countrySelect && countrySelect.dataset.filled !== '1') {
-                countrySelect.innerHTML = '';
-                countries.forEach(item => {
-                    const opt = document.createElement('option');
-                    opt.value = item.value;
-                    opt.textContent = item.label;
-                    countrySelect.appendChild(opt);
-                });
-                countrySelect.dataset.filled = '1';
-            }
-            if (countrySelect) countrySelect.value = s.country || '';
-            if (sessionSelect) sessionSelect.value = s.session_mode || 'rotating';
             if (s.username) {
                 const usernameInput = document.getElementById('ps-username');
                 if (usernameInput && !usernameInput.value) usernameInput.value = s.username;
@@ -849,11 +834,7 @@ class App {
 
     collectPacketStreamForm() {
         const mode = this.packetStreamMode || 'credentials';
-        const payload = {
-            mode,
-            country: document.getElementById('ps-country')?.value || '',
-            session_mode: document.getElementById('ps-session-mode')?.value || 'rotating'
-        };
+        const payload = { mode };
         if (mode === 'proxy_string') {
             payload.proxy_string = document.getElementById('ps-proxystring')?.value || '';
         } else {

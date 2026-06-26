@@ -1,12 +1,10 @@
 package services
 
 import (
-	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -28,18 +26,15 @@ func NewPacketStreamService(db *sql.DB) *PacketStreamService {
 	return &PacketStreamService{db: db}
 }
 
-// PacketStreamConfig 表示保存在数据库中的 PacketStream 凭据与节点选择。
-// AuthKey 仅保存“基础认证密钥”（不含 _country/_session 后缀），
-// 国家与会话在生成出站时动态拼接，便于在模块内随时切换地区。
+// PacketStreamConfig 表示保存在数据库中的 PacketStream 凭据。
+// AuthKey 即官网 Network Access 页的 Proxy Password，原样保存——其中已由官网
+// 编码了国家与会话（例如 IW3K1xcH8csPllvO_country-Turkey）。模块不再二次拼接。
 type PacketStreamConfig struct {
-	ID          int64  `json:"id"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Username    string `json:"username"`
-	AuthKey     string `json:"auth_key"`
-	Country     string `json:"country"`      // PacketStream 国家英文名（无空格），空表示全球随机
-	SessionMode string `json:"session_mode"` // rotating | sticky
-	SessionID   string `json:"session_id"`   // sticky 模式下的会话 ID
+	ID       int64  `json:"id"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	AuthKey  string `json:"auth_key"`
 }
 
 // PacketStreamStatus 返回给前端的状态（不泄露完整密钥明文）。
@@ -48,9 +43,6 @@ type PacketStreamStatus struct {
 	Host        string `json:"host"`
 	Port        int    `json:"port"`
 	Username    string `json:"username"`
-	Country     string `json:"country"`
-	SessionMode string `json:"session_mode"`
-	SessionID   string `json:"session_id"`
 	AuthKeyMask string `json:"auth_key_mask"`
 	HasAuthKey  bool   `json:"has_auth_key"`
 }
@@ -66,12 +58,12 @@ type PacketStreamTestResult struct {
 
 // GetConfig 读取当前配置，不存在时返回 (nil, nil)。
 func (s *PacketStreamService) GetConfig() (*PacketStreamConfig, error) {
-	row := s.db.QueryRow(`SELECT id, host, port, username, auth_key, country, session_mode, session_id
+	row := s.db.QueryRow(`SELECT id, host, port, username, auth_key
 		FROM packetstream_config ORDER BY id DESC LIMIT 1`)
 	var cfg PacketStreamConfig
-	var host, username, authKey, country, sessionMode, sessionID sql.NullString
+	var host, username, authKey sql.NullString
 	var port sql.NullInt64
-	if err := row.Scan(&cfg.ID, &host, &port, &username, &authKey, &country, &sessionMode, &sessionID); err != nil {
+	if err := row.Scan(&cfg.ID, &host, &port, &username, &authKey); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -81,17 +73,11 @@ func (s *PacketStreamService) GetConfig() (*PacketStreamConfig, error) {
 	cfg.Port = int(port.Int64)
 	cfg.Username = username.String
 	cfg.AuthKey = authKey.String
-	cfg.Country = country.String
-	cfg.SessionMode = sessionMode.String
-	cfg.SessionID = sessionID.String
 	if cfg.Host == "" {
 		cfg.Host = packetStreamDefaultHost
 	}
 	if cfg.Port == 0 {
 		cfg.Port = packetStreamDefaultPort
-	}
-	if cfg.SessionMode == "" {
-		cfg.SessionMode = "rotating"
 	}
 	return &cfg, nil
 }
@@ -99,9 +85,8 @@ func (s *PacketStreamService) GetConfig() (*PacketStreamConfig, error) {
 // GetStatus 返回脱敏后的状态。
 func (s *PacketStreamService) GetStatus() PacketStreamStatus {
 	status := PacketStreamStatus{
-		Host:        packetStreamDefaultHost,
-		Port:        packetStreamDefaultPort,
-		SessionMode: "rotating",
+		Host: packetStreamDefaultHost,
+		Port: packetStreamDefaultPort,
 	}
 	cfg, err := s.GetConfig()
 	if err != nil || cfg == nil {
@@ -110,50 +95,37 @@ func (s *PacketStreamService) GetStatus() PacketStreamStatus {
 	status.Host = cfg.Host
 	status.Port = cfg.Port
 	status.Username = cfg.Username
-	status.Country = cfg.Country
-	status.SessionMode = cfg.SessionMode
-	status.SessionID = cfg.SessionID
 	status.HasAuthKey = cfg.AuthKey != ""
 	status.AuthKeyMask = maskSecret(cfg.AuthKey)
 	status.Configured = cfg.Username != "" && cfg.AuthKey != ""
 	return status
 }
 
-// SaveConfig 持久化配置（单行，覆盖式）。
+// SaveConfig 持久化配置（单行，覆盖式）。Proxy Password 原样保存。
 func (s *PacketStreamService) SaveConfig(cfg *PacketStreamConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("配置为空")
 	}
 	cfg.Host = strings.TrimSpace(cfg.Host)
 	cfg.Username = strings.TrimSpace(cfg.Username)
-	cfg.AuthKey = normalizeAuthKey(cfg.AuthKey)
-	cfg.Country = normalizeCountry(cfg.Country)
+	cfg.AuthKey = strings.TrimSpace(cfg.AuthKey)
 	if cfg.Host == "" {
 		cfg.Host = packetStreamDefaultHost
 	}
 	if cfg.Port == 0 {
 		cfg.Port = packetStreamDefaultPort
 	}
-	if cfg.SessionMode != "sticky" {
-		cfg.SessionMode = "rotating"
-	}
 	if cfg.Username == "" || cfg.AuthKey == "" {
-		return fmt.Errorf("请填写 PacketStream 用户名与认证密钥")
-	}
-	if cfg.SessionMode == "sticky" && cfg.SessionID == "" {
-		cfg.SessionID = randomSessionID()
-	}
-	if cfg.SessionMode != "sticky" {
-		cfg.SessionID = ""
+		return fmt.Errorf("请填写 PacketStream 用户名与认证密钥（官网 Proxy Password）")
 	}
 
 	if _, err := s.db.Exec("DELETE FROM packetstream_config"); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(`INSERT INTO packetstream_config
-		(host, port, username, auth_key, country, session_mode, session_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-		cfg.Host, cfg.Port, cfg.Username, cfg.AuthKey, cfg.Country, cfg.SessionMode, cfg.SessionID,
+		(host, port, username, auth_key, created_at, updated_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		cfg.Host, cfg.Port, cfg.Username, cfg.AuthKey,
 	)
 	return err
 }
@@ -176,22 +148,6 @@ func (s *PacketStreamService) ValidateReady() error {
 	return nil
 }
 
-// BuildPassword 根据国家/会话动态拼接完整代理密码。
-func (s *PacketStreamService) BuildPassword(cfg *PacketStreamConfig) string {
-	pw := cfg.AuthKey
-	if cfg.Country != "" {
-		pw += "_country-" + cfg.Country
-	}
-	if cfg.SessionMode == "sticky" {
-		sid := cfg.SessionID
-		if sid == "" {
-			sid = randomSessionID()
-		}
-		pw += "_session-" + sid
-	}
-	return pw
-}
-
 // GenerateSingBoxOutbound 生成 sing-box HTTP 代理出站。
 func (s *PacketStreamService) GenerateSingBoxOutbound() (map[string]interface{}, error) {
 	cfg, err := s.GetConfig()
@@ -207,7 +163,7 @@ func (s *PacketStreamService) GenerateSingBoxOutbound() (map[string]interface{},
 		"server":      cfg.Host,
 		"server_port": cfg.Port,
 		"username":    cfg.Username,
-		"password":    s.BuildPassword(cfg),
+		"password":    cfg.AuthKey,
 	}, nil
 }
 
@@ -223,8 +179,7 @@ func (s *PacketStreamService) TestConnection(override *PacketStreamConfig) Packe
 	}
 	cfg.Host = strings.TrimSpace(cfg.Host)
 	cfg.Username = strings.TrimSpace(cfg.Username)
-	cfg.AuthKey = normalizeAuthKey(cfg.AuthKey)
-	cfg.Country = normalizeCountry(cfg.Country)
+	cfg.AuthKey = strings.TrimSpace(cfg.AuthKey)
 	if cfg.Host == "" {
 		cfg.Host = packetStreamDefaultHost
 	}
@@ -232,13 +187,12 @@ func (s *PacketStreamService) TestConnection(override *PacketStreamConfig) Packe
 		cfg.Port = packetStreamDefaultPort
 	}
 	if cfg.Username == "" || cfg.AuthKey == "" {
-		return PacketStreamTestResult{Success: false, Message: "请填写用户名与认证密钥"}
+		return PacketStreamTestResult{Success: false, Message: "请填写用户名与认证密钥（官网 Proxy Password）"}
 	}
 
-	password := s.BuildPassword(cfg)
 	proxyURL := &url.URL{
 		Scheme: "http",
-		User:   url.UserPassword(cfg.Username, password),
+		User:   url.UserPassword(cfg.Username, cfg.AuthKey),
 		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 	}
 	transport := &http.Transport{
@@ -304,7 +258,7 @@ func packetStreamProbeIPify(client *http.Client) (string, bool) {
 }
 
 // ParsePacketStreamProxyString 解析用户从官网复制的完整代理串/CURL，提取各字段。
-// 支持：
+// Proxy Password（含国家/会话）原样保留。支持：
 //   - http(s)/socks5(h)://user:pass@host:port
 //   - host:port:user:pass
 //   - user:pass@host:port
@@ -367,6 +321,7 @@ func ParsePacketStreamProxyString(raw string) (*PacketStreamConfig, error) {
 
 	host = strings.TrimSpace(host)
 	user = strings.TrimSpace(user)
+	pass = strings.TrimSpace(pass)
 	if host == "" {
 		host = packetStreamDefaultHost
 	}
@@ -376,27 +331,16 @@ func ParsePacketStreamProxyString(raw string) (*PacketStreamConfig, error) {
 			port = p
 		}
 	}
-
-	cfg := &PacketStreamConfig{
-		Host:        host,
-		Port:        port,
-		Username:    user,
-		SessionMode: "rotating",
+	if pass == "" {
+		return nil, fmt.Errorf("代理串中缺少认证密钥（Proxy Password）")
 	}
 
-	// 从密码中拆分出国家 / 会话
-	country, sessionID := extractCountrySession(pass)
-	cfg.AuthKey = normalizeAuthKey(pass)
-	cfg.Country = country
-	if sessionID != "" {
-		cfg.SessionMode = "sticky"
-		cfg.SessionID = sessionID
-	}
-
-	if cfg.AuthKey == "" {
-		return nil, fmt.Errorf("代理串中缺少认证密钥")
-	}
-	return cfg, nil
+	return &PacketStreamConfig{
+		Host:     host,
+		Port:     port,
+		Username: user,
+		AuthKey:  pass,
+	}, nil
 }
 
 func extractProxyFromCurl(text string) string {
@@ -412,48 +356,6 @@ func extractProxyFromCurl(text string) string {
 	return ""
 }
 
-// extractCountrySession 从完整密码中提取 country / session，返回 (country, sessionID)。
-func extractCountrySession(password string) (string, string) {
-	country := ""
-	session := ""
-	for _, seg := range strings.Split(password, "_") {
-		lower := strings.ToLower(seg)
-		if strings.HasPrefix(lower, "country-") {
-			country = seg[len("country-"):]
-		} else if strings.HasPrefix(lower, "session-") {
-			session = seg[len("session-"):]
-		}
-	}
-	return normalizeCountry(country), strings.TrimSpace(session)
-}
-
-// normalizeAuthKey 去除密码中附带的 _country-xxx / _session-xxx，只保留基础密钥。
-func normalizeAuthKey(password string) string {
-	password = strings.TrimSpace(password)
-	if password == "" {
-		return ""
-	}
-	segs := strings.Split(password, "_")
-	kept := make([]string, 0, len(segs))
-	for _, seg := range segs {
-		lower := strings.ToLower(seg)
-		if strings.HasPrefix(lower, "country-") || strings.HasPrefix(lower, "session-") {
-			continue
-		}
-		kept = append(kept, seg)
-	}
-	return strings.Join(kept, "_")
-}
-
-// normalizeCountry 规整国家名：去空格、首字母大写规则交给前端，这里仅去首尾空白。
-func normalizeCountry(country string) string {
-	c := strings.TrimSpace(country)
-	if strings.EqualFold(c, "global") || strings.EqualFold(c, "random") || c == "随机" || c == "全球" {
-		return ""
-	}
-	return c
-}
-
 func maskSecret(secret string) string {
 	if secret == "" {
 		return ""
@@ -463,59 +365,4 @@ func maskSecret(secret string) string {
 		return strings.Repeat("*", len(runes))
 	}
 	return strings.Repeat("*", len(runes)-4) + string(runes[len(runes)-4:])
-}
-
-// PacketStreamCountryOption 国家下拉项：Value 为 PacketStream 识别的英文名（无空格），Label 为中文显示。
-type PacketStreamCountryOption struct {
-	Value string `json:"value"`
-	Label string `json:"label"`
-}
-
-// PacketStreamCountries 返回常用的国家/地区列表。Value 必须与 PacketStream 后端
-// 的 country 取值一致（英文国名、无空格）。空 Value 表示全球随机出口。
-func PacketStreamCountries() []PacketStreamCountryOption {
-	return []PacketStreamCountryOption{
-		{Value: "", Label: "全球随机"},
-		{Value: "UnitedStates", Label: "美国"},
-		{Value: "UnitedKingdom", Label: "英国"},
-		{Value: "Canada", Label: "加拿大"},
-		{Value: "Germany", Label: "德国"},
-		{Value: "France", Label: "法国"},
-		{Value: "Netherlands", Label: "荷兰"},
-		{Value: "Singapore", Label: "新加坡"},
-		{Value: "Japan", Label: "日本"},
-		{Value: "HongKong", Label: "香港"},
-		{Value: "Taiwan", Label: "台湾"},
-		{Value: "SouthKorea", Label: "韩国"},
-		{Value: "Australia", Label: "澳大利亚"},
-		{Value: "Turkey", Label: "土耳其"},
-		{Value: "Nigeria", Label: "尼日利亚"},
-		{Value: "India", Label: "印度"},
-		{Value: "Brazil", Label: "巴西"},
-		{Value: "Italy", Label: "意大利"},
-		{Value: "Spain", Label: "西班牙"},
-		{Value: "Russia", Label: "俄罗斯"},
-		{Value: "Indonesia", Label: "印度尼西亚"},
-		{Value: "Vietnam", Label: "越南"},
-		{Value: "Thailand", Label: "泰国"},
-		{Value: "Malaysia", Label: "马来西亚"},
-		{Value: "Philippines", Label: "菲律宾"},
-		{Value: "UnitedArabEmirates", Label: "阿联酋"},
-		{Value: "SouthAfrica", Label: "南非"},
-		{Value: "Mexico", Label: "墨西哥"},
-	}
-}
-
-func randomSessionID() string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, 8)
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
-		if err != nil {
-			b[i] = charset[0]
-			continue
-		}
-		b[i] = charset[n.Int64()]
-	}
-	return string(b)
 }
