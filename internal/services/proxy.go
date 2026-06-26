@@ -634,7 +634,10 @@ WantedBy=multi-user.target
 
 	s.runOnHost("systemctl", "enable", serviceName)
 
-	if _, err := s.runOnHost("systemctl", "start", serviceName); err != nil {
+	// 使用 restart 而非 start：当服务已在运行时，start 是空操作，会导致刚写入的
+	// 新配置（例如切换 WARP/Aimili/PacketStream 出口）不被加载。restart 在停止
+	// 状态下等同于启动，在运行状态下会重新读取配置，确保配置变更始终生效。
+	if _, err := s.runOnHost("systemctl", "restart", serviceName); err != nil {
 		return fmt.Errorf("启动服务失败: %v", err)
 	}
 
