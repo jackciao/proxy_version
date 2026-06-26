@@ -784,8 +784,8 @@ class App {
 
             if (s.configured) {
                 statusEl.innerHTML = '<span class="text-success">✓ 已配置</span>';
-                // 显示公网出口 IP（如果有的话），否则显示接口地址
-                document.getElementById('warp-ipv4').textContent = s.public_ip || s.ipv4 || '-';
+                // 显示通过 WARP 隧道实测到的真实公网出口 IPv4（每次更换节点都会变化）
+                document.getElementById('warp-ipv4').textContent = s.public_ip || '检测中…';
                 document.getElementById('warp-ipv6').textContent = s.ipv6 ? (s.ipv6.length > 30 ? s.ipv6.substring(0, 30) + '...' : s.ipv6) : '-';
 
                 // 根据账号类型显示不同标签

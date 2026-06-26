@@ -136,6 +136,8 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		"ALTER TABLE nodes ADD COLUMN warp_enabled INTEGER DEFAULT 0",
 		// Add aimili_enabled column to nodes table if it doesn't exist
 		"ALTER TABLE nodes ADD COLUMN aimili_enabled INTEGER DEFAULT 0",
+		// Add public_ipv4 column to warp_config to store the measured WARP egress IPv4
+		"ALTER TABLE warp_config ADD COLUMN public_ipv4 TEXT",
 	}
 
 	for _, m := range migrations {

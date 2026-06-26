@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
@@ -31,6 +32,7 @@ type WarpConfig struct {
 	PublicKey   string    `json:"public_key"`
 	IPv4Address string    `json:"ipv4_address"`
 	IPv6Address string    `json:"ipv6_address"`
+	PublicIPv4  string    `json:"public_ipv4"` // 通过 WARP 隧道实测到的公网出口 IPv4
 	Endpoint    string    `json:"endpoint"`
 	LicenseKey  string    `json:"license_key,omitempty"`
 	TeamName    string    `json:"team_name,omitempty"`
@@ -53,6 +55,27 @@ type WarpStatus struct {
 const wgcfPath = "/usr/local/bin/wgcf"
 const warpConfigDir = "/etc/v2ray-agent/warp"
 
+// cloudflareWarpEndpointIPs 是一组 Cloudflare WARP 的 WireGuard 接入点 IPv4。
+// 免费 WARP 的真实公网出口 IPv4 取决于实际连接到的 Cloudflare 边缘节点，
+// 仅重新注册（换密钥）并不会改变出口 IP（内网 IPv4 恒为 172.16.0.2）。
+// 通过在这些不同的接入点之间轮换，可以让出口公网 IPv4 真正发生变化，
+// 从而绕过“更换节点后 IPv4 不变”的限制。
+var cloudflareWarpEndpointIPs = []string{
+	"162.159.192.1", "162.159.192.7", "162.159.192.19", "162.159.192.68", "162.159.192.153", "162.159.192.224",
+	"162.159.193.3", "162.159.193.9", "162.159.193.36", "162.159.193.100", "162.159.193.200",
+	"162.159.195.1", "162.159.195.7", "162.159.195.50", "162.159.195.100", "162.159.195.200",
+	"188.114.96.3", "188.114.96.7", "188.114.96.50", "188.114.96.160", "188.114.96.224",
+	"188.114.97.7", "188.114.97.40", "188.114.97.100", "188.114.97.160", "188.114.97.224",
+	"188.114.98.0", "188.114.98.50", "188.114.98.224",
+	"188.114.99.7", "188.114.99.40", "188.114.99.224",
+}
+
+// cloudflareWarpEndpointPorts 是 WARP 支持的 UDP 端口集合，2408 为默认端口，
+// 其余端口用于在 2408 被运营商封锁时提供回退。
+var cloudflareWarpEndpointPorts = []int{2408, 500, 1701, 880, 908, 928, 987, 2371, 4233, 5279, 7156, 8854}
+
+const warpDefaultEndpoint = "engage.cloudflareclient.com:2408"
+
 // GetStatus returns the current WARP status
 func (s *WarpService) GetStatus() WarpStatus {
 	status := WarpStatus{
@@ -69,55 +92,117 @@ func (s *WarpService) GetStatus() WarpStatus {
 		status.Endpoint = config.Endpoint
 		status.Config = config
 
-		// 获取通过 WARP 的实际公网出口 IP
-		status.PublicIP = s.getWarpPublicIP()
+		// 显示通过 WARP 隧道实测到的真实公网出口 IPv4（在注册/更换节点时测得并持久化）。
+		// 注意：绝不能在这里直接发起 HTTP 请求获取本机 IP——那样拿到的是 VPS 直连出口，
+		// 并不经过 WARP，会导致“公网 IP 永远不变”的错觉。
+		status.PublicIP = config.PublicIPv4
 	}
 
 	return status
 }
 
-// getWarpPublicIP fetches the actual public IP when routing through WARP
-func (s *WarpService) getWarpPublicIP() string {
-	// 尝试多个 IP 检测服务
-	services := []string{
-		"https://1.1.1.1/cdn-cgi/trace",
-		"https://api.ipify.org",
-		"https://ifconfig.me/ip",
-	}
+// warpEndpointHost 从 "ip:port" 形式的 endpoint 中提取主机部分用于展示。
+func warpEndpointHost(endpoint string) string {
+	host, _ := splitEndpoint(endpoint)
+	return host
+}
 
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	for _, url := range services {
-		resp, err := client.Get(url)
-		if err != nil {
-			continue
+// pickRandomWarpEndpoint 从 Cloudflare WARP 接入点池中随机挑选一个 "ip:port"，
+// 尽量避免与 exclude（上次使用的 endpoint）相同，从而促使出口 IP 发生变化。
+func pickRandomWarpEndpoint(exclude string) string {
+	excludeHost := warpEndpointHost(exclude)
+	for attempt := 0; attempt < 12; attempt++ {
+		ip := cloudflareWarpEndpointIPs[rand.Intn(len(cloudflareWarpEndpointIPs))]
+		// 绝大多数接入点在 2408 上都可用，优先使用 2408 保证连通性，
+		// 偶尔使用备用端口以应对 2408 被封锁的网络环境。
+		port := 2408
+		if rand.Intn(5) == 0 {
+			port = cloudflareWarpEndpointPorts[rand.Intn(len(cloudflareWarpEndpointPorts))]
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			continue
-		}
-
-		content := strings.TrimSpace(string(body))
-
-		// 1.1.1.1/cdn-cgi/trace 返回格式: ip=x.x.x.x
-		if strings.Contains(url, "cdn-cgi/trace") {
-			lines := strings.Split(content, "\n")
-			for _, line := range lines {
-				if strings.HasPrefix(line, "ip=") {
-					return strings.TrimPrefix(line, "ip=")
-				}
-			}
-		} else {
-			// 其他服务直接返回 IP
-			if len(content) > 0 && len(content) < 50 {
-				return content
-			}
+		if ip != excludeHost {
+			return fmt.Sprintf("%s:%d", ip, port)
 		}
 	}
+	ip := cloudflareWarpEndpointIPs[rand.Intn(len(cloudflareWarpEndpointIPs))]
+	return fmt.Sprintf("%s:2408", ip)
+}
 
-	return "获取失败"
+// findSingBoxPathOnHost 在宿主机上查找 sing-box 可执行文件，找不到返回空字符串。
+func (s *WarpService) findSingBoxPathOnHost() string {
+	paths := []string{"/usr/local/bin/sing-box", "/etc/v2ray-agent/sing-box/sing-box", "/usr/bin/sing-box"}
+	for _, p := range paths {
+		if _, err := exec.Command("nsenter", "-t", "1", "-m", "test", "-f", p).CombinedOutput(); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// measureWarpEgressIP 在宿主机上临时拉起一个仅含 WARP 出站的 sing-box 实例，
+// 通过其 SOCKS5 入口访问 Cloudflare trace 接口，返回真实经过 WARP 隧道的公网出口 IPv4。
+// 这样即可如实展示出口 IP，并验证“更换节点”后 IPv4 是否真正改变。
+func (s *WarpService) measureWarpEgressIP(config *WarpConfig) string {
+	if config == nil || config.PrivateKey == "" {
+		return ""
+	}
+	singboxPath := s.findSingBoxPathOnHost()
+	if singboxPath == "" {
+		return ""
+	}
+	server, port := splitEndpoint(config.Endpoint)
+	socksPort := 21000 + rand.Intn(8000)
+
+	address := config.IPv4Address
+	if address == "" {
+		address = "172.16.0.2/32"
+	}
+	addrJSON := fmt.Sprintf("%q", address)
+	if config.IPv6Address != "" {
+		addrJSON = fmt.Sprintf("%q, %q", address, config.IPv6Address)
+	}
+
+	probeCfg := fmt.Sprintf(`{
+  "log": {"level": "error"},
+  "inbounds": [{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":%d}],
+  "outbounds": [{"type":"direct","tag":"direct"}],
+  "endpoints": [{
+    "type":"wireguard","tag":"warp-out","system":false,"mtu":1280,
+    "address":[%s],
+    "private_key":%q,
+    "peers":[{"address":%q,"port":%d,"public_key":"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=","reserved":[0,0,0],"allowed_ips":["0.0.0.0/0","::/0"],"persistent_keepalive_interval":30}]
+  }],
+  "route": {"rules":[{"inbound":["in"],"outbound":"warp-out"}],"final":"warp-out"}
+}`, socksPort, addrJSON, config.PrivateKey, server, port)
+
+	script := fmt.Sprintf(`set -e
+CFG=$(mktemp /tmp/warp_probe_XXXXXX.json)
+cat > "$CFG" <<'SBCFG'
+%s
+SBCFG
+%s run -c "$CFG" >/tmp/warp_probe.log 2>&1 &
+PID=$!
+IP=""
+for i in $(seq 1 12); do
+  sleep 1
+  IP=$(curl -s --max-time 6 -x socks5h://127.0.0.1:%d "https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null | sed -n 's/^ip=//p')
+  [ -n "$IP" ] && break
+done
+kill $PID >/dev/null 2>&1 || true
+rm -f "$CFG"
+printf '%%s' "$IP"
+`, probeCfg, singboxPath, socksPort)
+
+	cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", "bash", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	ip := strings.TrimSpace(string(out))
+	// 仅接受形如 IPv4 的结果，避免把日志噪声当成 IP
+	if strings.Count(ip, ".") == 3 && len(ip) <= 15 {
+		return ip
+	}
+	return ""
 }
 
 // InstallWgcf installs the wgcf tool
@@ -173,12 +258,19 @@ func (s *WarpService) Register() (*WarpConfig, error) {
 		PublicKey:   publicKey,
 		IPv4Address: regData.Config.Interface.Addresses.V4 + "/32",
 		IPv6Address: regData.Config.Interface.Addresses.V6 + "/128",
-		Endpoint:    "engage.cloudflareclient.com:2408",
+		// 随机选择一个 Cloudflare WARP 接入点，使不同账号/不同次注册尽量走不同边缘节点
+		Endpoint: pickRandomWarpEndpoint(""),
 	}
 
 	// Save to database
 	if err := s.saveConfig(config); err != nil {
 		return nil, err
+	}
+
+	// 实测真实公网出口 IPv4 并持久化（依赖宿主机已安装 sing-box；未安装时静默跳过）
+	if egress := s.measureWarpEgressIP(config); egress != "" {
+		config.PublicIPv4 = egress
+		_ = s.saveConfig(config)
 	}
 
 	return config, nil
@@ -294,66 +386,84 @@ func (s *WarpService) callCloudflareRegisterAPI(publicKey string) (*CloudflareRe
 	return &regResp, nil
 }
 
-// Refresh re-registers to get a new WARP IP (useful when streaming unlock becomes ineffective)
+// Refresh 更换 WARP 节点：重新注册（换密钥/IPv6）并在 Cloudflare WARP 接入点之间轮换，
+// 然后通过隧道实测真实公网出口 IPv4，循环直到出口 IPv4 与上次不同，
+// 从而真正实现“每次更换节点后公网 IPv4 也变化”，绕过 WARP 免费账号内网 IPv4 恒定的限制。
 func (s *WarpService) Refresh() (*WarpConfig, error) {
-	// Backup existing config
+	// 备份现有配置
 	existingConfig, _ := s.GetConfig()
 	var licenseKey string
-	var oldIPv4, oldIPv6 string
+	var oldEgress, oldEndpoint string
 	if existingConfig != nil {
 		licenseKey = existingConfig.LicenseKey
-		oldIPv4 = existingConfig.IPv4Address
-		oldIPv6 = existingConfig.IPv6Address
+		oldEgress = existingConfig.PublicIPv4
+		oldEndpoint = existingConfig.Endpoint
 	}
 
-	// Try up to 10 times to get a different IP (increased for better success rate)
+	// 若宿主机未安装 sing-box，则无法实测出口 IP，退化为单次重新注册 + 端点轮换，
+	// 避免反复多次注册却无法验证而白白耗时。
+	canMeasure := s.findSingBoxPathOnHost() != ""
+
 	var newConfig *WarpConfig
+	var fallbackConfig *WarpConfig // 至少拿到一个能用（出口可测）的配置作为兜底
 	var err error
-	maxRetries := 10
+	maxRetries := 6
+	if !canMeasure {
+		maxRetries = 1
+	}
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		// Delete existing config
+		// 删除现有配置（并向 Cloudflare 注销旧设备）
 		if delErr := s.DeleteConfig(); delErr != nil {
 			return nil, delErr
 		}
 
-		// Re-register
+		// 重新注册，获得全新的密钥与 IPv6
 		newConfig, err = s.Register()
 		if err != nil {
 			return nil, err
 		}
 
-		// Check if we got a different IP
-		if newConfig.IPv4Address != oldIPv4 || newConfig.IPv6Address != oldIPv6 {
-			fmt.Printf("WARP Refresh: got new IP after %d attempts (old: %s, new: %s)\n",
-				attempt, oldIPv4, newConfig.IPv4Address)
-			break
+		// 轮换到一个不同于上次的接入点
+		endpoint := pickRandomWarpEndpoint(oldEndpoint)
+		newConfig.Endpoint = endpoint
+		if err := s.saveConfig(newConfig); err != nil {
+			return nil, err
 		}
 
-		if attempt < maxRetries {
-			fmt.Printf("WARP Refresh: got same IP on attempt %d, retrying...\n", attempt)
-			// Exponential backoff: 1s, 2s, 3s, ... up to 5s max
-			sleepDuration := time.Duration(attempt)
-			if sleepDuration > 5 {
-				sleepDuration = 5
+		// 实测出口 IPv4
+		egress := s.measureWarpEgressIP(newConfig)
+		newConfig.PublicIPv4 = egress
+		_ = s.saveConfig(newConfig)
+
+		if egress != "" {
+			fallbackConfig = newConfig
+			if egress != oldEgress {
+				fmt.Printf("WARP Refresh: 第 %d 次尝试获得新出口 IPv4 (旧: %s, 新: %s, 端点: %s)\n",
+					attempt, oldEgress, egress, endpoint)
+				break
 			}
-			time.Sleep(time.Second * sleepDuration)
+			fmt.Printf("WARP Refresh: 第 %d 次出口 IPv4 与旧值相同 (%s)，更换端点重试...\n", attempt, egress)
 		} else {
-			fmt.Printf("WARP Refresh: still same IP after %d attempts (Cloudflare may return same IP for same source)\n", maxRetries)
+			fmt.Printf("WARP Refresh: 第 %d 次出口测量失败（端点 %s 可能不可达），更换端点重试...\n", attempt, endpoint)
 		}
+		// 让下一次尽量避开本次端点
+		oldEndpoint = endpoint
 	}
 
-	// If had WARP+ license, re-apply it
-	if licenseKey != "" {
+	// 若始终没能拿到“不同”的出口，但拿到过可用配置，则采用该兜底配置
+	if (newConfig == nil || newConfig.PublicIPv4 == "" || newConfig.PublicIPv4 == oldEgress) && fallbackConfig != nil {
+		newConfig = fallbackConfig
+		_ = s.saveConfig(newConfig)
+	}
+
+	// 如有 WARP+ license，重新应用
+	if licenseKey != "" && newConfig != nil {
 		newConfig.LicenseKey = licenseKey
 		if err := s.UpgradeToPlus(licenseKey); err != nil {
-			// 升级失败，保持免费账号状态但保留 license key 供后续重试
-			fmt.Printf("Warning: failed to re-apply WARP+ license: %v\\n", err)
-			// 不设置 AccountType 为 plus，让它保持 newConfig 从 Register 获得的值（通常是 "free" 或空）
+			fmt.Printf("Warning: failed to re-apply WARP+ license: %v\n", err)
 		} else {
-			// 升级成功才设置为 plus
 			newConfig.AccountType = "plus"
-			// 重新保存配置以更新 AccountType
 			s.saveConfig(newConfig)
 		}
 	}
@@ -417,7 +527,7 @@ func (s *WarpService) UpgradeToPlus(licenseKey string) error {
 func (s *WarpService) GetConfig() (*WarpConfig, error) {
 	row := s.db.QueryRow(`
 		SELECT id, account_type, device_id, access_token, private_key, public_key,
-		       ipv4_address, ipv6_address, endpoint, license_key, team_name,
+		       ipv4_address, ipv6_address, COALESCE(public_ipv4, ''), endpoint, license_key, team_name,
 		       created_at, updated_at
 		FROM warp_config ORDER BY id DESC LIMIT 1
 	`)
@@ -429,7 +539,7 @@ func (s *WarpService) GetConfig() (*WarpConfig, error) {
 	err := row.Scan(
 		&config.ID, &config.AccountType, &config.DeviceID, &config.AccessToken,
 		&config.PrivateKey, &config.PublicKey, &config.IPv4Address, &config.IPv6Address,
-		&config.Endpoint, &licenseKey, &teamName, &createdAt, &updatedAt,
+		&config.PublicIPv4, &config.Endpoint, &licenseKey, &teamName, &createdAt, &updatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -666,12 +776,12 @@ func (s *WarpService) saveConfig(config *WarpConfig) error {
 
 	_, err := s.db.Exec(`
 		INSERT INTO warp_config 
-		(account_type, device_id, access_token, private_key, public_key, ipv4_address, ipv6_address, endpoint, license_key, team_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(account_type, device_id, access_token, private_key, public_key, ipv4_address, ipv6_address, public_ipv4, endpoint, license_key, team_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		config.AccountType, config.DeviceID, config.AccessToken,
 		config.PrivateKey, config.PublicKey, config.IPv4Address, config.IPv6Address,
-		config.Endpoint, config.LicenseKey, config.TeamName,
+		config.PublicIPv4, config.Endpoint, config.LicenseKey, config.TeamName,
 	)
 	return err
 }
@@ -738,9 +848,13 @@ func (s *WarpService) CheckStreamingUnlock() (*StreamingCheckResult, error) {
 		return nil, fmt.Errorf("WARP 未配置")
 	}
 
+	warpIP := config.PublicIPv4
+	if warpIP == "" {
+		warpIP = config.IPv4Address
+	}
 	result := &StreamingCheckResult{
 		CheckedAt: time.Now().Unix(),
-		WarpIP:    config.IPv4Address,
+		WarpIP:    warpIP,
 	}
 
 	// Create HTTP client with timeout

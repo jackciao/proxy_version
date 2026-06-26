@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 	aimiliNodesPath     = aimiliInstallDir + "/vpngate_data/nodes.json"
 	aimiliStatePath     = aimiliInstallDir + "/vpngate_data/state.json"
 	aimiliCountriesPath = aimiliInstallDir + "/vpngate_data/proxy_version_available_countries.json"
-	aimiliBundleVersion = "2db62f9b9ec490d4d29a2c047f18e1d6ea8ab29e-proxy-version-3"
+	aimiliBundleVersion = "2db62f9b9ec490d4d29a2c047f18e1d6ea8ab29e-proxy-version-4"
 )
 
 //go:embed aimili_bundle/*
@@ -362,8 +363,22 @@ func (s *AimiliService) RefreshCountries() error {
 	if err := s.ensureCertificateChain(); err != nil {
 		return err
 	}
+	// 部署前先判断 bundle 是否为最新；若不是，部署后需重启服务让新抓取逻辑生效。
+	bundleWasCurrent := s.IsBundleCurrent()
 	if err := s.deployBundledSource(); err != nil {
 		return err
+	}
+	if !bundleWasCurrent {
+		if _, err := s.runOnHost("systemctl", "restart", "aimilivpn.service"); err != nil {
+			return fmt.Errorf("升级 Aimili VPN 后重启失败: %v", err)
+		}
+		// 等待服务重新就绪后再触发刷新
+		for i := 0; i < 15; i++ {
+			if _, err := s.runOnHost("systemctl", "is-active", "--quiet", "aimilivpn.service"); err == nil {
+				break
+			}
+			time.Sleep(time.Second)
+		}
 	}
 	script := `import http.cookiejar
 import json

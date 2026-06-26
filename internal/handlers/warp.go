@@ -45,11 +45,58 @@ func RefreshWarp(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+
+		// 更换节点后，重启所有正在运行且启用了 WARP 的节点，使新的出口端点立即生效
+		restarted := restartRunningWarpNodes(db)
+
 		c.JSON(http.StatusOK, gin.H{
-			"message": "WARP 节点已更换",
-			"config":  config,
+			"message":   "WARP 节点已更换",
+			"config":    config,
+			"restarted": restarted,
 		})
 	}
+}
+
+// restartRunningWarpNodes 重启所有正在运行且启用了 WARP 的节点，使新的 WARP 出口端点立即生效。
+// 返回成功重启的节点数量。
+func restartRunningWarpNodes(db *sql.DB) int {
+	rows, err := db.Query(
+		"SELECT id, protocol, config, COALESCE(aimili_enabled, 0) FROM nodes WHERE warp_enabled = 1 AND status = ?",
+		models.NodeStatusRunning,
+	)
+	if err != nil {
+		return 0
+	}
+	type nodeInfo struct {
+		id       int64
+		protocol string
+		config   string
+		aimili   bool
+	}
+	var targets []nodeInfo
+	for rows.Next() {
+		var n nodeInfo
+		var aimili int
+		if err := rows.Scan(&n.id, &n.protocol, &n.config, &aimili); err != nil {
+			continue
+		}
+		n.aimili = aimili == 1
+		targets = append(targets, n)
+	}
+	rows.Close()
+
+	proxyService := services.NewProxyService()
+	restarted := 0
+	for _, n := range targets {
+		proxyService.StopNode(n.id)
+		if err := proxyService.StartNode(n.id, n.protocol, n.config, true, n.aimili, db); err != nil {
+			db.Exec("UPDATE nodes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", models.NodeStatusError, n.id)
+			continue
+		}
+		db.Exec("UPDATE nodes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", models.NodeStatusRunning, n.id)
+		restarted++
+	}
+	return restarted
 }
 
 // UpgradeWarp upgrades the account to WARP+

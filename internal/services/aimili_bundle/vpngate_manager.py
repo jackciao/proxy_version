@@ -81,7 +81,17 @@ API_URL = "https://www.vpngate.net/api/iphone/"
 FETCH_INTERVAL_SECONDS = int(os.environ.get("FETCH_INTERVAL_SECONDS", "1260"))
 CHECK_INTERVAL_SECONDS = int(os.environ.get("CHECK_INTERVAL_SECONDS", "1260"))
 TARGET_VALID_NODES = int(os.environ.get("TARGET_VALID_NODES", "3"))
-MAX_SCAN_ROWS = int(os.environ.get("MAX_SCAN_ROWS", "300"))
+MAX_SCAN_ROWS = int(os.environ.get("MAX_SCAN_ROWS", "2000"))
+# VPNGate iphone API 每次只返回轮换的高分子集，多轮抓取取并集以覆盖稀有地区（如美国）。
+FETCH_ROUNDS = int(os.environ.get("FETCH_ROUNDS", "6"))
+FETCH_ROUND_INTERVAL = float(os.environ.get("FETCH_ROUND_INTERVAL", "2"))
+# 每个国家最多保留的候选节点数：压缩日韩等优势地区，完整保留稀有地区，控制全量探测耗时。
+COUNTRY_CAP = int(os.environ.get("COUNTRY_CAP", "10"))
+# 全量连通性检测的并发数：适度提高以在刷新超时窗口内检测更多节点。
+PROBE_MAX_WORKERS = int(os.environ.get("PROBE_MAX_WORKERS", "16"))
+# 跨刷新累积保留节点的时间窗口（秒）：在此窗口内见过的节点会被保留并持续复检，
+# 使美国等偶发出现的地区节点不会因单次未抓到而消失。
+ACCUMULATE_TTL_SECONDS = int(os.environ.get("ACCUMULATE_TTL_SECONDS", str(6 * 3600)))
 OPENVPN_TEST_TIMEOUT_SECONDS = int(os.environ.get("OPENVPN_TEST_TIMEOUT_SECONDS", "35"))
 OPENVPN_CMD = os.environ.get("OPENVPN_CMD", "openvpn")
 OPENVPN_AUTH_USER = os.environ.get("OPENVPN_AUTH_USER", "vpn")
@@ -555,8 +565,39 @@ def fetch_candidates() -> list[dict[str, Any]]:
         attempts_targets.append((API_URL.replace("https://", "http://"), True))
         
     log_to_json("INFO", "Main", "开始拉取官方 API 节点列表...")
-    
+
+    def harvest(url: str, verify_ssl: bool) -> int:
+        """拉取一次 API 并把新出现的唯一节点并入 candidates，返回本轮新增数量。"""
+        api_text = fetch_api_text(url, verify_ssl)
+        rows = parse_vpngate_rows(api_text)
+        added = 0
+        for row in rows[:MAX_SCAN_ROWS]:
+            ip = row.get("IP", "")
+            if not ip or ip in seen_ips:
+                continue
+            encoded = row.get("OpenVPN_ConfigData_Base64", "")
+            if not encoded:
+                continue
+            config_text = decode_config(encoded)
+            # proxy_version missing intermediate certificate patch
+            chain_path = Path("/opt/aimilivpn/vpngate_data/certs/letsencrypt-current-chain.pem")
+            is_isrg_x1_config = "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiw" in config_text
+            if is_isrg_x1_config and chain_path.exists() and "proxy_version-letsencrypt-chain" not in config_text:
+                chain = chain_path.read_text(encoding="utf-8")
+                config_text = config_text.replace(
+                    "</ca>",
+                    "# proxy_version-letsencrypt-chain\n" + chain + "\n</ca>",
+                    1,
+                )
+            node = row_to_node(row, config_text)
+            candidates.append(node)
+            seen_ips.add(ip)
+            added += 1
+        return added
+
     last_err = None
+    working_target = None
+    # 第一阶段：找到一个可用的拉取目标（HTTPS 验证 / HTTPS 不验证 / HTTP）
     for url, verify_ssl in attempts_targets:
         for i in range(max_attempts):
             if i > 0:
@@ -565,37 +606,37 @@ def fetch_candidates() -> list[dict[str, Any]]:
                 msg = f"尝试拉取 {url} (SSL验证: {verify_ssl}, 第 {i+1} 次尝试)..."
                 print(f"[fetch_candidates] {msg}", flush=True)
                 log_to_json("INFO", "Main", msg)
-                api_text = fetch_api_text(url, verify_ssl)
-                rows = parse_vpngate_rows(api_text)
-                for row in rows[:MAX_SCAN_ROWS]:
-                    ip = row.get("IP", "")
-                    if not ip or ip in seen_ips:
-                        continue
-                    encoded = row.get("OpenVPN_ConfigData_Base64", "")
-                    if not encoded:
-                        continue
-                    config_text = decode_config(encoded)
-                    # proxy_version missing intermediate certificate patch
-                    chain_path = Path("/opt/aimilivpn/vpngate_data/certs/letsencrypt-current-chain.pem")
-                    is_isrg_x1_config = "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiw" in config_text
-                    if is_isrg_x1_config and chain_path.exists() and "proxy_version-letsencrypt-chain" not in config_text:
-                        chain = chain_path.read_text(encoding="utf-8")
-                        config_text = config_text.replace(
-                            "</ca>",
-                            "# proxy_version-letsencrypt-chain\n" + chain + "\n</ca>",
-                            1,
-                        )
-                    node = row_to_node(row, config_text)
-                    candidates.append(node)
-                    seen_ips.add(ip)
-                if candidates:
-                    break
+                harvest(url, verify_ssl)
+                working_target = (url, verify_ssl)
+                break
             except Exception as e:
                 last_err = e
                 print(f"[fetch_candidates] 拉取失败 (URL: {url}, 验证: {verify_ssl}): {e}", flush=True)
                 log_to_json("WARNING", "Main", f"拉取失败 (URL: {url}, 验证: {verify_ssl}): {e}")
-        if candidates:
+        if working_target is not None:
             break
+
+    # 第二阶段：VPNGate 的 iphone API 每次只返回约 100 个高分子集且会轮换，
+    # 单次抓取会丢失美国等少数地区节点（表现为“美国时有时无”）。
+    # 这里对同一可用目标多次抓取并取并集，尽可能覆盖到轮换出现的稀有地区节点。
+    if working_target is not None:
+        url, verify_ssl = working_target
+        empty_rounds = 0
+        for r in range(FETCH_ROUNDS - 1):
+            time.sleep(FETCH_ROUND_INTERVAL)
+            try:
+                added = harvest(url, verify_ssl)
+            except Exception as e:
+                last_err = e
+                print(f"[fetch_candidates] 第 {r + 2} 轮补充抓取失败: {e}", flush=True)
+                continue
+            print(f"[fetch_candidates] 第 {r + 2} 轮补充抓取新增 {added} 个唯一节点，累计 {len(candidates)} 个", flush=True)
+            if added == 0:
+                empty_rounds += 1
+                if empty_rounds >= 2:
+                    break
+            else:
+                empty_rounds = 0
             
     if not candidates:
         err_code, diag_msg = vpn_utils.diagnose_api_failure(API_URL)
@@ -612,14 +653,40 @@ def fetch_candidates() -> list[dict[str, Any]]:
         else:
             raise RuntimeError(diag_msg)
                 
+    raw_count = len(candidates)
+    # 多样性限流：日韩等优势地区节点会淹没列表并拖垮全量探测耗时，
+    # 这里压缩单一地区的数量、完整保留新加坡/台湾/土耳其/美国等稀有地区节点，
+    # 既缩短刷新耗时又最大化覆盖到目标地区。
+    candidates = cap_country_diversity(candidates, COUNTRY_CAP)
+
     set_state(
         last_fetch_at=time.time(),
         last_fetch_status="ok",
-        last_fetch_message=f"Fetched {len(candidates)} unique candidates across multiple attempts.",
+        last_fetch_message=f"多轮抓取去重得到 {raw_count} 个候选，限流后保留 {len(candidates)} 个。",
         blacklisted_nodes=len(blacklist),
     )
-    log_to_json("INFO", "Main", f"成功获取官方 API 节点，共 {len(candidates)} 个候选节点")
+    log_to_json("INFO", "Main", f"成功获取官方 API 节点，多轮去重 {raw_count} 个，限流后 {len(candidates)} 个候选节点")
     return candidates
+
+def cap_country_diversity(nodes: list[dict[str, Any]], per_country: int) -> list[dict[str, Any]]:
+    """对每个国家最多保留 per_country 个节点（活动/可用/高分优先），
+    从而压缩日韩等优势地区、完整保留稀有地区，控制全量探测的总节点数。"""
+    if per_country <= 0:
+        return nodes
+    by_country: dict[str, list[dict[str, Any]]] = {}
+    for n in nodes:
+        key = str(n.get("country") or n.get("country_short") or "XX")
+        by_country.setdefault(key, []).append(n)
+    result: list[dict[str, Any]] = []
+    for key, group in by_country.items():
+        group.sort(key=lambda n: (
+            0 if n.get("active") else 1,
+            0 if n.get("probe_status") == "available" else 1,
+            -parse_int(n.get("score")),
+            parse_int(n.get("ping")) or 999999,
+        ))
+        result.extend(group[:per_country])
+    return result
 
 def cached_nodes() -> list[dict[str, Any]]:
     return read_json(NODES_FILE, [])
@@ -1053,7 +1120,7 @@ def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
         return temp_node
 
     updated_nodes_map = {}
-    max_workers = min(8, max(1, len(to_test)))
+    max_workers = min(PROBE_MAX_WORKERS, max(1, len(to_test)))
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(test_worker, (idx, n)): n["id"] for idx, n in enumerate(to_test)}
         for future in concurrent.futures.as_completed(futures):
@@ -1339,26 +1406,45 @@ def maintain_valid_nodes_locked(force: bool = False) -> str:
             return "没有拉取到新节点"
 
         with lock:
+            prev_nodes = read_json(NODES_FILE, [])
             active_node = None
             if active_openvpn_node_id:
-                current_nodes = read_json(NODES_FILE, [])
-                active_node = next((n for n in current_nodes if n.get("id") == active_openvpn_node_id), None)
-                
+                active_node = next((n for n in prev_nodes if n.get("id") == active_openvpn_node_id), None)
+
+            now = time.time()
             merged: list[dict[str, Any]] = []
             seen_ids: set[str] = set()
-            
+
             if active_node:
+                active_node["last_seen"] = now
                 merged.append(active_node)
                 seen_ids.add(active_node["id"])
-                
+
+            # 本轮抓取到的候选（标记 last_seen 用于跨刷新累积判断）
             for cand in candidates:
+                cand["last_seen"] = now
                 if cand["id"] not in seen_ids:
                     merged.append(cand)
                     seen_ids.add(cand["id"])
-                    
+
+            # 跨刷新累积：保留之前缓存中“可用”或近期见过的节点（即使本轮 API 未返回），
+            # 修复因 VPNGate 轮换导致的“美国等地区节点时有时无”。
+            for n in prev_nodes:
+                nid = n.get("id")
+                if not nid or nid in seen_ids:
+                    continue
+                last_seen = n.get("last_seen") or n.get("fetched_at") or 0
+                keep = n.get("probe_status") == "available" or (now - last_seen) < ACCUMULATE_TTL_SECONDS
+                if keep:
+                    merged.append(n)
+                    seen_ids.add(nid)
+
+            # 多样性限流，控制全量探测节点总数（活动节点已在最前，限流时优先保留）
+            merged = cap_country_diversity(merged, COUNTRY_CAP)
+
             if len(merged) > 1000:
                 merged = merged[:1000]
-                
+
             for n in merged:
                 config_path = Path(n["config_file"])
                 if not config_path.exists():
